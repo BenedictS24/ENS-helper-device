@@ -6,20 +6,29 @@ The device measures chest expansion using a load cell connected to a strap and t
 ---
 ## Repository Structure
 
-```text
+```
 ENS-helper-device/
+├── .gitignore
+├── KiCad/
+│   ├── sensory_support_device.kicad_pcb
+│   └── sensory_support_device.kicad_sch
+├── README.md
 ├── force_vibration_controller/
-│   └── force_vibration_controller.ino   # Arduino Nano firmware
+│   └── force_vibration_controller.ino
 ├── images/
-│   ├── breadboard_circuit.jpeg          # Breadboard prototype
-│   ├── device_closed.jpeg               # Fully closed device on the strap
-│   ├── device_open.jpeg                 # Open case with electronics visible
-│   └── protoboard_in_case.jpeg          # Assembled protoboard in enclosure
+│   ├── PCB-3d.png
+│   ├── PCB.png
+│   ├── breadboard_circuit.jpeg
+│   ├── circuit.png
+│   ├── device_closed.jpeg
+│   ├── device_open.jpeg
+│   ├── device_worn.JPG
+│   └── protoboard_in_case.jpeg
 └── models/
-    ├── back_plate.stl                   # Back plate for the straps
-    ├── load_cell_attachment.stl         # Load cell mounting bracket
-    ├── main_plate_cover.stl             # Top cover of the housing
-    └── main_plate.stl                   # Main base structure
+    ├── back_plate.stl
+    ├── load_cell_attachment.stl
+    ├── main_plate.stl
+    └── main_plate_cover.stl
 ```
 
 ---
