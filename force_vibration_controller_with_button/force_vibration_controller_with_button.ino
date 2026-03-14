@@ -27,32 +27,56 @@ unsigned long lastDebounceTime = 0;
 // -------------------------------------------------------------
 HX711 scale;
 
-long  zeroOffset  = 102000;   // raw reading at no load
-float scaleFactor = 1000.0;   // raw units per gram
+long  zeroOffset  = 102000;
+float scaleFactor = 1000.0;
 
 // -------------------------------------------------------------
 // Feedback modes
 // -------------------------------------------------------------
 enum FeedbackMode {
-  MODE_ABSOLUTE = 0,
-  MODE_RATE     = 1
+  MODE_ABSOLUTE        = 0,
+  MODE_RATE            = 1,
+  MODE_NO_BREATH_ALERT = 2
 };
 
 FeedbackMode currentMode = MODE_ABSOLUTE;
 
-// ----- Absolute-force mode settings ---------------------------
-float minWeight = 0.0;        // grams -> no vibration below this
-float maxWeight = 2000.0;     // grams -> max vibration at/above this
+// -------------------------------------------------------------
+// Absolute force mode settings
+// -------------------------------------------------------------
+float minWeight = 0.0;
+float maxWeight = 2000.0;
 
-// ----- Rate-of-change mode settings ---------------------------
-float lastWeight = 0.0;       // grams
-unsigned long lastTime = 0;   // ms
-
-float maxRate = 200.0;        // g/s mapped to max vibration
-float minRate = 0.0;          // vibration starts above this threshold
-
+// -------------------------------------------------------------
+// Rate of change settings
+// -------------------------------------------------------------
+unsigned long lastTime = 0;
+float lastWeightFiltered = 0.0;
 float rateFiltered = 0.0;
-float smoothing = 0.1;        // exponential smoothing factor
+
+float weightSmoothing = 0.12;
+float rateSmoothing   = 0.10;
+
+bool filterInitialized = false;
+
+float maxRate = 200.0;
+float minRate = 0.0;
+
+// -------------------------------------------------------------
+// No breath alert mode settings
+// -------------------------------------------------------------
+unsigned long lastBreathDetectedTime = 0;
+unsigned long noBreathTimeout = 5000;
+
+float breathDetectThreshold = 1.5;
+
+// Pulsing behavior
+unsigned long pulsePeriod = 1600;       // time from one pulse start to the next
+unsigned long pulseOnTime = 250;        // pulse duration
+unsigned long pulseRampTime = 10000;    // strength ramps up over this time
+
+int alertMinPWM = 60;
+int alertMaxPWM = 160;
 
 // -------------------------------------------------------------
 // Helper: float mapping to PWM range
@@ -86,6 +110,7 @@ float getWeight() {
 // LED feedback for current mode
 // 1 blink  = absolute
 // 2 blinks = rate
+// 3 blinks = no breath alert
 // -------------------------------------------------------------
 void blinkNTimes(int n) {
   for (int i = 0; i < n; i++) {
@@ -102,7 +127,27 @@ void indicateCurrentMode() {
     blinkNTimes(1);
   } else if (currentMode == MODE_RATE) {
     blinkNTimes(2);
+  } else if (currentMode == MODE_NO_BREATH_ALERT) {
+    blinkNTimes(3);
   }
+}
+
+// -------------------------------------------------------------
+// Reset dynamic signal state
+// -------------------------------------------------------------
+void resetSignalState() {
+  lastTime = millis();
+
+  if (scale.is_ready()) {
+    float w = getWeight();
+    lastWeightFiltered = w;
+  } else {
+    lastWeightFiltered = 0.0;
+  }
+
+  rateFiltered = 0.0;
+  filterInitialized = true;
+  lastBreathDetectedTime = millis();
 }
 
 // -------------------------------------------------------------
@@ -111,15 +156,13 @@ void indicateCurrentMode() {
 void nextMode() {
   if (currentMode == MODE_ABSOLUTE) {
     currentMode = MODE_RATE;
+  } else if (currentMode == MODE_RATE) {
+    currentMode = MODE_NO_BREATH_ALERT;
   } else {
     currentMode = MODE_ABSOLUTE;
   }
 
-  // Reset rate calculation when entering/changing mode
-  lastTime = millis();
-  lastWeight = getWeight();
-  rateFiltered = 0.0;
-
+  resetSignalState();
   indicateCurrentMode();
 }
 
@@ -138,15 +181,7 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // Initialize rate-of-change reference
-  lastTime = millis();
-  if (scale.is_ready()) {
-    lastWeight = getWeight();
-  } else {
-    lastWeight = 0.0;
-  }
-
-  // Show startup mode
+  resetSignalState();
   indicateCurrentMode();
 }
 
@@ -167,7 +202,6 @@ void loop() {
     if (reading != buttonState) {
       buttonState = reading;
 
-      // Button pressed
       if (buttonState == LOW) {
         nextMode();
       }
@@ -180,73 +214,112 @@ void loop() {
   // HX711 check
   // -----------------------------------------------------------
   if (!scale.is_ready()) {
-    Serial.println("HX711 not ready.");
     analogWrite(MOTOR_PIN, 0);
+
+    Serial.print(0.0, 2);
+    Serial.print('\t');
+    Serial.println(0);
+
     delay(100);
     return;
   }
 
   // -----------------------------------------------------------
-  // Read weight
+  // Read and smooth signal
   // -----------------------------------------------------------
-  float weight = getWeight();
+  unsigned long now = millis();
+  float rawWeight = getWeight();
+  float forceAbs = fabs(rawWeight);
+
+  if (!filterInitialized) {
+    lastWeightFiltered = rawWeight;
+    lastTime = now;
+    rateFiltered = 0.0;
+    filterInitialized = true;
+    lastBreathDetectedTime = now;
+  }
+
+  float dt = (now - lastTime) / 1000.0;
+  if (dt <= 0.0) {
+    dt = 0.001;
+  }
+
+  float weightFiltered = weightSmoothing * rawWeight
+                       + (1.0 - weightSmoothing) * lastWeightFiltered;
+
+  float rawRate = (weightFiltered - lastWeightFiltered) / dt;
+
+  rateFiltered = rateSmoothing * rawRate
+               + (1.0 - rateSmoothing) * rateFiltered;
+
+  float activityAbs = fabs(rateFiltered);
+
+  if (activityAbs > breathDetectThreshold) {
+    lastBreathDetectedTime = now;
+  }
+
+  lastWeightFiltered = weightFiltered;
+  lastTime = now;
+
   int pwm = 0;
 
   // -----------------------------------------------------------
-  // Mode 1: ABSOLUTE FORCE
+  // Mode 1: absolute force
   // -----------------------------------------------------------
   if (currentMode == MODE_ABSOLUTE) {
-    float w = constrain(weight, minWeight, maxWeight);
+    float forceForMotor = fabs(weightFiltered);
+    float w = constrain(forceForMotor, minWeight, maxWeight);
     pwm = mapFloatToPWM(w, minWeight, maxWeight);
-
     analogWrite(MOTOR_PIN, pwm);
-
-    Serial.print("Mode: ABSOLUTE");
-    Serial.print('\t');
-    Serial.print("Weight: ");
-    Serial.print(weight, 2);
-    Serial.print('\t');
-    Serial.print("PWM: ");
-    Serial.println(pwm);
   }
 
   // -----------------------------------------------------------
-  // Mode 2: RATE OF CHANGE
+  // Mode 2: rate of change
   // -----------------------------------------------------------
   else if (currentMode == MODE_RATE) {
-    unsigned long now = millis();
-    float dt = (now - lastTime) / 1000.0;
+    float r = constrain(activityAbs, minRate, maxRate);
+    pwm = mapFloatToPWM(r, minRate, maxRate);
+    analogWrite(MOTOR_PIN, pwm);
+  }
 
-    if (dt <= 0.0) {
-      dt = 0.001;
+  // -----------------------------------------------------------
+  // Mode 3: no breath alert with slow pulses
+  // -----------------------------------------------------------
+  else if (currentMode == MODE_NO_BREATH_ALERT) {
+    unsigned long quietTime = now - lastBreathDetectedTime;
+
+    if (quietTime < noBreathTimeout) {
+      pwm = 0;
+    } else {
+      unsigned long alertElapsed = quietTime - noBreathTimeout;
+
+      float rampProgress = (float)alertElapsed / (float)pulseRampTime;
+      if (rampProgress > 1.0) {
+        rampProgress = 1.0;
+      }
+
+      int pulseStrength = alertMinPWM + (int)((alertMaxPWM - alertMinPWM) * rampProgress);
+
+      unsigned long pulsePhase = alertElapsed % pulsePeriod;
+
+      if (pulsePhase < pulseOnTime) {
+        pwm = pulseStrength;
+      } else {
+        pwm = 0;
+      }
     }
 
-    float rate = (weight - lastWeight) / dt;
-
-    // Stabilize signal
-    rateFiltered = smoothing * rate + (1.0 - smoothing) * rateFiltered;
-
-    float r = fabs(rateFiltered);
-    r = constrain(r, minRate, maxRate);
-
-    pwm = mapFloatToPWM(r, minRate, maxRate);
-
     analogWrite(MOTOR_PIN, pwm);
-
-    Serial.print("Mode: RATE");
-    Serial.print('\t');
-    Serial.print("Weight: ");
-    Serial.print(weight, 2);
-    Serial.print('\t');
-    Serial.print("Rate: ");
-    Serial.print(rateFiltered, 2);
-    Serial.print('\t');
-    Serial.print("PWM: ");
-    Serial.println(pwm);
-
-    lastWeight = weight;
-    lastTime = now;
   }
+
+  // -----------------------------------------------------------
+  // Serial Plotter output
+  // 1) absolute force
+  // 2) motor power
+  // -----------------------------------------------------------
+  Serial.print(forceAbs, 2);
+  Serial.print('\t');
+  Serial.println(pwm);
 
   delay(100);
 }
