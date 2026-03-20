@@ -8,15 +8,18 @@ const int LOADCELL_DOUT_PIN = 5;
 const int LOADCELL_SCK_PIN  = 7;
 const int MOTOR_PIN         = 9;
 
+// Minimum PWM to help the motor overcome stiction when enabled
+const int MIN_MOTOR_PWM     = 45;
+
 const int BUTTON_PIN = 2;
 const int LED_PIN    = 3;
 
 // -------------------------------------------------------------
 // Button / LED settings
 // -------------------------------------------------------------
-const unsigned long debounceDelay = 30;
-const int blinkOnTime  = 200;
-const int blinkOffTime = 200;
+const unsigned long debounceDelay = 40;
+const int blinkOnTime  = 250;
+const int blinkOffTime = 250;
 
 int lastReading = HIGH;
 int buttonState = HIGH;
@@ -96,6 +99,23 @@ int mapFloatToPWM(float x, float in_min, float in_max) {
   }
 
   return (int)result;
+}
+
+// Keep motor off at 0, but enforce a minimum drive once enabled
+int applyMotorFloor(int pwm) {
+  if (pwm <= 0) {
+    return 0;
+  }
+
+  if (pwm < MIN_MOTOR_PWM) {
+    return MIN_MOTOR_PWM;
+  }
+
+  if (pwm > 255) {
+    return 255;
+  }
+
+  return pwm;
 }
 
 // -------------------------------------------------------------
@@ -270,6 +290,7 @@ void loop() {
     float forceForMotor = fabs(weightFiltered);
     float w = constrain(forceForMotor, minWeight, maxWeight);
     pwm = mapFloatToPWM(w, minWeight, maxWeight);
+    pwm = applyMotorFloor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
 
@@ -279,6 +300,7 @@ void loop() {
   else if (currentMode == MODE_RATE) {
     float r = constrain(activityAbs, minRate, maxRate);
     pwm = mapFloatToPWM(r, minRate, maxRate);
+    pwm = applyMotorFloor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
 
@@ -309,6 +331,7 @@ void loop() {
       }
     }
 
+    pwm = applyMotorFloor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
 
