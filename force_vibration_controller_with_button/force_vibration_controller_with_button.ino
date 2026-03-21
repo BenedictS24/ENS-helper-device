@@ -15,6 +15,13 @@ const int LED_PIN    = 3;
 const int MIN_MOTOR_PWM = 45;
 
 // -------------------------------------------------------------
+// Motor signal for calibration mode
+// -------------------------------------------------------------
+const int CALIBRATION_SIGNAL_PWM      = 110;
+const int CALIBRATION_SIGNAL_ON_TIME  = 120;
+const int CALIBRATION_SIGNAL_OFF_TIME = 100;
+
+// -------------------------------------------------------------
 // Button / LED settings
 // -------------------------------------------------------------
 const unsigned long debounceDelay     = 40;
@@ -73,13 +80,7 @@ enum FeedbackMode {
 FeedbackMode currentMode = MODE_ABSOLUTE;
 
 // -------------------------------------------------------------
-// Absolute mode
-// Uses calibratedMin ... calibratedMax directly
-// -------------------------------------------------------------
-
-// -------------------------------------------------------------
 // Rate of change mode
-// Uses normalized position within calibrated span
 // -------------------------------------------------------------
 unsigned long lastTime = 0;
 float lastWeightFiltered = 0.0;
@@ -91,21 +92,17 @@ float rateSmoothing   = 0.10;
 
 bool filterInitialized = false;
 
-// normalized units per second
 float minRate = 0.0;
 float maxRate = 1.2;
 
 // -------------------------------------------------------------
 // No breath alert mode
-// Breath detection is also based on normalized rate
 // -------------------------------------------------------------
 unsigned long lastBreathDetectedTime = 0;
 unsigned long noBreathTimeout = 5000;
 
-// normalized units per second
 float breathDetectThreshold = 0.03;
 
-// Pulsing behavior
 unsigned long pulsePeriod   = 1600;
 unsigned long pulseOnTime   = 250;
 unsigned long pulseRampTime = 10000;
@@ -133,7 +130,6 @@ int mapFloatToPWM(float x, float in_min, float in_max) {
   return (int)result;
 }
 
-// Keep motor off at 0, but enforce a minimum drive once enabled
 int applyMotorFloor(int pwm) {
   if (pwm <= 0) {
     return 0;
@@ -150,18 +146,11 @@ int applyMotorFloor(int pwm) {
   return pwm;
 }
 
-// -------------------------------------------------------------
-// Read current weight in grams
-// -------------------------------------------------------------
 float getWeight() {
   long raw = scale.read();
   return (raw - zeroOffset) / scaleFactor;
 }
 
-// -------------------------------------------------------------
-// Convert current reading to normalized range 0..1
-// based on calibrated min / max
-// -------------------------------------------------------------
 float getNormalizedWeight(float weight) {
   float span = calibratedMax - calibratedMin;
 
@@ -174,10 +163,25 @@ float getNormalizedWeight(float weight) {
 }
 
 // -------------------------------------------------------------
+// NEW: motor signal for calibration start
+// -------------------------------------------------------------
+void signalCalibrationModeWithMotor() {
+  int pwm = applyMotorFloor(CALIBRATION_SIGNAL_PWM);
+
+  for (int i = 0; i < 2; i++) {
+    analogWrite(MOTOR_PIN, pwm);
+    delay(CALIBRATION_SIGNAL_ON_TIME);
+
+    analogWrite(MOTOR_PIN, 0);
+
+    if (i < 1) {
+      delay(CALIBRATION_SIGNAL_OFF_TIME);
+    }
+  }
+}
+
+// -------------------------------------------------------------
 // LED feedback for current mode
-// 1 blink  = absolute
-// 2 blinks = rate
-// 3 blinks = no breath alert
 // -------------------------------------------------------------
 void blinkNTimes(int n) {
   for (int i = 0; i < n; i++) {
@@ -199,9 +203,6 @@ void indicateCurrentMode() {
   }
 }
 
-// -------------------------------------------------------------
-// Reset dynamic signal state
-// -------------------------------------------------------------
 void resetSignalState() {
   lastTime = millis();
 
@@ -226,14 +227,17 @@ void startCalibration() {
   previousCalibratedMin = calibratedMin;
   previousCalibratedMax = calibratedMax;
 
+  analogWrite(MOTOR_PIN, 0);
+
+  // NEW: two short motor pulses to signal calibration mode
+  signalCalibrationModeWithMotor();
+
   isCalibrating = true;
   calibrationStartTime = millis();
   calibrationHasReading = false;
 
   calibrationMinReading = 0.0;
   calibrationMaxReading = 0.0;
-
-  analogWrite(MOTOR_PIN, 0);
 
   calibrationLedState = true;
   lastCalibrationLedToggle = millis();
@@ -244,9 +248,6 @@ void startCalibration() {
   Serial.println("CALIBRATION_START");
 }
 
-// -------------------------------------------------------------
-// Finish calibration
-// -------------------------------------------------------------
 void finishCalibration() {
   isCalibrating = false;
   digitalWrite(LED_PIN, LOW);
@@ -276,9 +277,6 @@ void finishCalibration() {
   indicateCurrentMode();
 }
 
-// -------------------------------------------------------------
-// Update calibration LED
-// -------------------------------------------------------------
 void updateCalibrationLED(unsigned long now) {
   if (now - lastCalibrationLedToggle >= calibrationLedInterval) {
     calibrationLedState = !calibrationLedState;
@@ -287,9 +285,6 @@ void updateCalibrationLED(unsigned long now) {
   }
 }
 
-// -------------------------------------------------------------
-// Switch to next mode
-// -------------------------------------------------------------
 void nextMode() {
   if (currentMode == MODE_ABSOLUTE) {
     currentMode = MODE_RATE;
@@ -303,9 +298,6 @@ void nextMode() {
   indicateCurrentMode();
 }
 
-// -------------------------------------------------------------
-// Setup
-// -------------------------------------------------------------
 void setup() {
   Serial.begin(57600);
 
@@ -320,24 +312,11 @@ void setup() {
 
   resetSignalState();
   indicateCurrentMode();
-
-  // Optional:
-  // Wenn du bei jedem Einschalten direkt neu kalibrieren willst,
-  // kannst du die nächste Zeile einkommentieren.
-  // startCalibration();
 }
 
-// -------------------------------------------------------------
-// Main loop
-// -------------------------------------------------------------
 void loop() {
   unsigned long now = millis();
 
-  // -----------------------------------------------------------
-  // Button handling with debounce
-  // Short press  = next mode
-  // Long press   = recalibration
-  // -----------------------------------------------------------
   int reading = digitalRead(BUTTON_PIN);
 
   if (reading != lastReading) {
@@ -368,10 +347,6 @@ void loop() {
     }
   }
 
-  // -----------------------------------------------------------
-  // Calibration mode
-  // Collect fresh min / max for calibrationDuration
-  // -----------------------------------------------------------
   if (isCalibrating) {
     analogWrite(MOTOR_PIN, 0);
     updateCalibrationLED(now);
@@ -405,9 +380,6 @@ void loop() {
     return;
   }
 
-  // -----------------------------------------------------------
-  // HX711 check
-  // -----------------------------------------------------------
   if (!scale.is_ready()) {
     analogWrite(MOTOR_PIN, 0);
 
@@ -419,9 +391,6 @@ void loop() {
     return;
   }
 
-  // -----------------------------------------------------------
-  // Read and smooth signal
-  // -----------------------------------------------------------
   float rawWeight = getWeight();
   float forceAbs = fabs(rawWeight);
 
@@ -461,20 +430,12 @@ void loop() {
 
   int pwm = 0;
 
-  // -----------------------------------------------------------
-  // Mode 1: absolute force
-  // Scale linearly between calibratedMin and calibratedMax
-  // -----------------------------------------------------------
   if (currentMode == MODE_ABSOLUTE) {
     pwm = mapFloatToPWM(weightFiltered, calibratedMin, calibratedMax);
     pwm = applyMotorFloor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
 
-  // -----------------------------------------------------------
-  // Mode 2: rate of change
-  // Uses normalized rate, therefore adapts to calibration span
-  // -----------------------------------------------------------
   else if (currentMode == MODE_RATE) {
     float r = clampFloat(activityAbs, minRate, maxRate);
     pwm = mapFloatToPWM(r, minRate, maxRate);
@@ -482,10 +443,6 @@ void loop() {
     analogWrite(MOTOR_PIN, pwm);
   }
 
-  // -----------------------------------------------------------
-  // Mode 3: no breath alert with slow pulses
-  // Breath detection based on normalized activity
-  // -----------------------------------------------------------
   else if (currentMode == MODE_NO_BREATH_ALERT) {
     unsigned long quietTime = now - lastBreathDetectedTime;
 
@@ -513,11 +470,6 @@ void loop() {
     analogWrite(MOTOR_PIN, pwm);
   }
 
-  // -----------------------------------------------------------
-  // Serial Plotter output
-  // 1) absolute force
-  // 2) motor power
-  // -----------------------------------------------------------
   Serial.print(forceAbs, 2);
   Serial.print('\t');
   Serial.println(pwm);
