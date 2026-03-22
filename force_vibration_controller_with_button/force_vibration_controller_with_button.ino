@@ -5,11 +5,11 @@
 // Pins
 // -------------------------------------------------------------
 const int LOADCELL_DOUT_PIN = 5;
-const int LOADCELL_SCK_PIN  = 7;
-const int MOTOR_PIN         = 9;
+const int LOADCELL_SCK_PIN = 7;
+const int MOTOR_PIN = 9;
 
 const int BUTTON_PIN = 2;
-const int LED_PIN    = 3;
+const int LED_PIN = 3;
 
 // Minimum PWM to help the motor overcome stiction when enabled
 const int MIN_MOTOR_PWM = 45;
@@ -17,286 +17,112 @@ const int MIN_MOTOR_PWM = 45;
 // -------------------------------------------------------------
 // Motor signal for calibration mode
 // -------------------------------------------------------------
-const int CALIBRATION_SIGNAL_PWM      = 110;
-const int CALIBRATION_SIGNAL_ON_TIME  = 120;
+const int CALIBRATION_SIGNAL_PWM = 110;
+const int CALIBRATION_SIGNAL_ON_TIME = 120;
 const int CALIBRATION_SIGNAL_OFF_TIME = 100;
 
 // -------------------------------------------------------------
 // Button / LED settings
 // -------------------------------------------------------------
-const unsigned long debounceDelay     = 40;
-const unsigned long longPressDuration = 5000;
+const unsigned long debounce_delay = 40;
+const unsigned long long_press_duration = 5000;
 
-const int blinkOnTime  = 250;
-const int blinkOffTime = 250;
+const int blink_on_time = 250;
+const int blink_off_time = 250;
 
-int lastReading = HIGH;
-int buttonState = HIGH;
-unsigned long lastDebounceTime = 0;
+int last_reading = HIGH;
+int button_state = HIGH;
+unsigned long last_debounce_time = 0;
 
-unsigned long buttonPressStartTime = 0;
-bool longPressHandled = false;
+unsigned long button_press_start_time = 0;
+bool long_press_handled = false;
 
 // -------------------------------------------------------------
 // HX711 / calibration
 // -------------------------------------------------------------
 HX711 scale;
 
-long  zeroOffset  = 102000;
-float scaleFactor = 1000.0;
+long zero_offset = 102000;
+float scale_factor = 1000.0;
 
 // -------------------------------------------------------------
 // Dynamic calibration of min / max readings
 // -------------------------------------------------------------
-float calibratedMin = -150.0;
-float calibratedMax =  150.0;
+float calibrated_min = -150.0;
+float calibrated_max = 150.0;
 
-float previousCalibratedMin = -150.0;
-float previousCalibratedMax =  150.0;
+float previous_calibrated_min = -150.0;
+float previous_calibrated_max = 150.0;
 
-bool isCalibrating = false;
-unsigned long calibrationStartTime = 0;
-const unsigned long calibrationDuration = 10000;
+bool is_calibrating = false;
+unsigned long calibration_start_time = 0;
+const unsigned long calibration_duration = 10000;
 
-float calibrationMinReading = 0.0;
-float calibrationMaxReading = 0.0;
-bool calibrationHasReading = false;
+float calibration_min_reading = 0.0;
+float calibration_max_reading = 0.0;
+bool calibration_has_reading = false;
 
-const float minCalibrationSpan = 30.0;
+const float min_calibration_span = 30.0;
 
-unsigned long lastCalibrationLedToggle = 0;
-bool calibrationLedState = false;
-const unsigned long calibrationLedInterval = 120;
+unsigned long last_calibration_led_toggle = 0;
+bool calibration_led_state = false;
+const unsigned long calibration_led_interval = 120;
 
 // -------------------------------------------------------------
 // Feedback modes
 // -------------------------------------------------------------
 enum FeedbackMode {
-  MODE_ABSOLUTE        = 0,
-  MODE_RATE            = 1,
+  MODE_ABSOLUTE = 0,
+  MODE_RATE = 1,
   MODE_NO_BREATH_ALERT = 2
 };
 
-FeedbackMode currentMode = MODE_ABSOLUTE;
+FeedbackMode current_mode = MODE_ABSOLUTE;
 
 // -------------------------------------------------------------
 // Rate of change mode
 // -------------------------------------------------------------
-unsigned long lastTime = 0;
-float lastWeightFiltered = 0.0;
-float lastNormalizedWeight = 0.0;
-float rateFiltered = 0.0;
+unsigned long last_time = 0;
+float last_weight_filtered = 0.0;
+float last_normalized_weight = 0.0;
+float rate_filtered = 0.0;
 
-float weightSmoothing = 0.12;
-float rateSmoothing   = 0.10;
+float weight_smoothing = 0.12;
+float rate_smoothing = 0.10;
 
-bool filterInitialized = false;
+bool filter_initialized = false;
 
-float minRate = 0.0;
-float maxRate = 1.2;
+float min_rate = 0.0;
+float max_rate = 1.2;
 
 // -------------------------------------------------------------
 // No breath alert mode
 // -------------------------------------------------------------
-unsigned long lastBreathDetectedTime = 0;
-unsigned long noBreathTimeout = 5000;
+unsigned long last_breath_detected_time = 0;
+unsigned long no_breath_timeout = 5000;
 
-float breathDetectThreshold = 0.03;
+float breath_detect_threshold = 0.03;
 
-unsigned long pulsePeriod   = 1600;
-unsigned long pulseOnTime   = 250;
-unsigned long pulseRampTime = 10000;
+unsigned long pulse_period = 1600;
+unsigned long pulse_on_time = 250;
+unsigned long pulse_ramp_time = 10000;
 
-int alertMinPWM = 60;
-int alertMaxPWM = 160;
+int alert_min_pwm = 60;
+int alert_max_pwm = 160;
 
-// -------------------------------------------------------------
-// Helper
-// -------------------------------------------------------------
-float clampFloat(float x, float lo, float hi) {
-  if (x < lo) return lo;
-  if (x > hi) return hi;
-  return x;
-}
-
-int mapFloatToPWM(float x, float in_min, float in_max) {
-  if (in_max == in_min) {
-    return 0;
-  }
-
-  float result = (x - in_min) * 255.0 / (in_max - in_min);
-  result = clampFloat(result, 0.0, 255.0);
-
-  return (int)result;
-}
-
-int applyMotorFloor(int pwm) {
-  if (pwm <= 0) {
-    return 0;
-  }
-
-  if (pwm < MIN_MOTOR_PWM) {
-    return MIN_MOTOR_PWM;
-  }
-
-  if (pwm > 255) {
-    return 255;
-  }
-
-  return pwm;
-}
-
-float getWeight() {
-  long raw = scale.read();
-  return (raw - zeroOffset) / scaleFactor;
-}
-
-float getNormalizedWeight(float weight) {
-  float span = calibratedMax - calibratedMin;
-
-  if (span < minCalibrationSpan) {
-    span = minCalibrationSpan;
-  }
-
-  float normalized = (weight - calibratedMin) / span;
-  return clampFloat(normalized, 0.0, 1.0);
-}
-
-// -------------------------------------------------------------
-// NEW: motor signal for calibration start
-// -------------------------------------------------------------
-void signalCalibrationModeWithMotor() {
-  int pwm = applyMotorFloor(CALIBRATION_SIGNAL_PWM);
-
-  for (int i = 0; i < 2; i++) {
-    analogWrite(MOTOR_PIN, pwm);
-    delay(CALIBRATION_SIGNAL_ON_TIME);
-
-    analogWrite(MOTOR_PIN, 0);
-
-    if (i < 1) {
-      delay(CALIBRATION_SIGNAL_OFF_TIME);
-    }
-  }
-}
-
-// -------------------------------------------------------------
-// LED feedback for current mode
-// -------------------------------------------------------------
-void blinkNTimes(int n) {
-  for (int i = 0; i < n; i++) {
-    digitalWrite(LED_PIN, HIGH);
-    delay(blinkOnTime);
-
-    digitalWrite(LED_PIN, LOW);
-    delay(blinkOffTime);
-  }
-}
-
-void indicateCurrentMode() {
-  if (currentMode == MODE_ABSOLUTE) {
-    blinkNTimes(1);
-  } else if (currentMode == MODE_RATE) {
-    blinkNTimes(2);
-  } else if (currentMode == MODE_NO_BREATH_ALERT) {
-    blinkNTimes(3);
-  }
-}
-
-void resetSignalState() {
-  lastTime = millis();
-
-  if (scale.is_ready()) {
-    float w = getWeight();
-    lastWeightFiltered = w;
-    lastNormalizedWeight = getNormalizedWeight(w);
-  } else {
-    lastWeightFiltered = 0.0;
-    lastNormalizedWeight = 0.0;
-  }
-
-  rateFiltered = 0.0;
-  filterInitialized = true;
-  lastBreathDetectedTime = millis();
-}
-
-// -------------------------------------------------------------
-// Start calibration
-// -------------------------------------------------------------
-void startCalibration() {
-  previousCalibratedMin = calibratedMin;
-  previousCalibratedMax = calibratedMax;
-
-  analogWrite(MOTOR_PIN, 0);
-
-  // NEW: two short motor pulses to signal calibration mode
-  signalCalibrationModeWithMotor();
-
-  isCalibrating = true;
-  calibrationStartTime = millis();
-  calibrationHasReading = false;
-
-  calibrationMinReading = 0.0;
-  calibrationMaxReading = 0.0;
-
-  calibrationLedState = true;
-  lastCalibrationLedToggle = millis();
-  digitalWrite(LED_PIN, HIGH);
-
-  filterInitialized = false;
-
-  Serial.println("CALIBRATION_START");
-}
-
-void finishCalibration() {
-  isCalibrating = false;
-  digitalWrite(LED_PIN, LOW);
-
-  if (calibrationHasReading) {
-    float span = calibrationMaxReading - calibrationMinReading;
-
-    if (span >= minCalibrationSpan) {
-      calibratedMin = calibrationMinReading;
-      calibratedMax = calibrationMaxReading;
-    } else {
-      calibratedMin = previousCalibratedMin;
-      calibratedMax = previousCalibratedMax;
-    }
-  } else {
-    calibratedMin = previousCalibratedMin;
-    calibratedMax = previousCalibratedMax;
-  }
-
-  resetSignalState();
-
-  Serial.print("CALIBRATION_DONE\tMIN=");
-  Serial.print(calibratedMin, 2);
-  Serial.print("\tMAX=");
-  Serial.println(calibratedMax, 2);
-
-  indicateCurrentMode();
-}
-
-void updateCalibrationLED(unsigned long now) {
-  if (now - lastCalibrationLedToggle >= calibrationLedInterval) {
-    calibrationLedState = !calibrationLedState;
-    digitalWrite(LED_PIN, calibrationLedState ? HIGH : LOW);
-    lastCalibrationLedToggle = now;
-  }
-}
-
-void nextMode() {
-  if (currentMode == MODE_ABSOLUTE) {
-    currentMode = MODE_RATE;
-  } else if (currentMode == MODE_RATE) {
-    currentMode = MODE_NO_BREATH_ALERT;
-  } else {
-    currentMode = MODE_ABSOLUTE;
-  }
-
-  resetSignalState();
-  indicateCurrentMode();
-}
+float clamp_float(float x, float lo, float hi);
+int map_float_to_pwm(float x, float in_min, float in_max);
+int apply_motor_floor(int pwm);
+float get_weight();
+float get_normalized_weight(float weight);
+void signal_calibration_mode_with_motor();
+void blink_n_times(int n);
+void indicate_current_mode();
+void reset_signal_state();
+void start_calibration();
+void finish_calibration();
+void update_calibration_led(unsigned long now);
+void next_mode();
 
 void setup() {
   Serial.begin(57600);
@@ -310,8 +136,8 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  resetSignalState();
-  indicateCurrentMode();
+  reset_signal_state();
+  indicate_current_mode();
 }
 
 void loop() {
@@ -319,51 +145,51 @@ void loop() {
 
   int reading = digitalRead(BUTTON_PIN);
 
-  if (reading != lastReading) {
-    lastDebounceTime = now;
+  if (reading != last_reading) {
+    last_debounce_time = now;
   }
 
-  if ((now - lastDebounceTime) > debounceDelay) {
-    if (reading != buttonState) {
-      buttonState = reading;
+  if ((now - last_debounce_time) > debounce_delay) {
+    if (reading != button_state) {
+      button_state = reading;
 
-      if (buttonState == LOW) {
-        buttonPressStartTime = now;
-        longPressHandled = false;
+      if (button_state == LOW) {
+        button_press_start_time = now;
+        long_press_handled = false;
       } else {
-        if (!longPressHandled && !isCalibrating) {
-          nextMode();
+        if (!long_press_handled && !is_calibrating) {
+          next_mode();
         }
       }
     }
   }
 
-  lastReading = reading;
+  last_reading = reading;
 
-  if (buttonState == LOW && !longPressHandled && !isCalibrating) {
-    if ((now - buttonPressStartTime) >= longPressDuration) {
-      startCalibration();
-      longPressHandled = true;
+  if (button_state == LOW && !long_press_handled && !is_calibrating) {
+    if ((now - button_press_start_time) >= long_press_duration) {
+      start_calibration();
+      long_press_handled = true;
     }
   }
 
-  if (isCalibrating) {
+  if (is_calibrating) {
     analogWrite(MOTOR_PIN, 0);
-    updateCalibrationLED(now);
+    update_calibration_led(now);
 
     if (scale.is_ready()) {
-      float rawWeight = getWeight();
+      float raw_weight = get_weight();
 
-      if (!calibrationHasReading) {
-        calibrationMinReading = rawWeight;
-        calibrationMaxReading = rawWeight;
-        calibrationHasReading = true;
+      if (!calibration_has_reading) {
+        calibration_min_reading = raw_weight;
+        calibration_max_reading = raw_weight;
+        calibration_has_reading = true;
       } else {
-        if (rawWeight < calibrationMinReading) calibrationMinReading = rawWeight;
-        if (rawWeight > calibrationMaxReading) calibrationMaxReading = rawWeight;
+        if (raw_weight < calibration_min_reading) calibration_min_reading = raw_weight;
+        if (raw_weight > calibration_max_reading) calibration_max_reading = raw_weight;
       }
 
-      Serial.print(rawWeight, 2);
+      Serial.print(raw_weight, 2);
       Serial.print('\t');
       Serial.println(0);
     } else {
@@ -372,8 +198,8 @@ void loop() {
       Serial.println(0);
     }
 
-    if ((now - calibrationStartTime) >= calibrationDuration) {
-      finishCalibration();
+    if ((now - calibration_start_time) >= calibration_duration) {
+      finish_calibration();
     }
 
     delay(20);
@@ -391,88 +217,276 @@ void loop() {
     return;
   }
 
-  float rawWeight = getWeight();
-  float forceAbs = fabs(rawWeight);
+  float raw_weight = get_weight();
+  float force_abs = fabs(raw_weight);
 
-  if (!filterInitialized) {
-    lastWeightFiltered = rawWeight;
-    lastNormalizedWeight = getNormalizedWeight(rawWeight);
-    lastTime = now;
-    rateFiltered = 0.0;
-    filterInitialized = true;
-    lastBreathDetectedTime = now;
+  if (!filter_initialized) {
+    last_weight_filtered = raw_weight;
+    last_normalized_weight = get_normalized_weight(raw_weight);
+    last_time = now;
+    rate_filtered = 0.0;
+    filter_initialized = true;
+    last_breath_detected_time = now;
   }
 
-  float dt = (now - lastTime) / 1000.0;
+  float dt = (now - last_time) / 1000.0;
   if (dt <= 0.0) {
     dt = 0.001;
   }
 
-  float weightFiltered = weightSmoothing * rawWeight
-                       + (1.0 - weightSmoothing) * lastWeightFiltered;
+  float weight_filtered = weight_smoothing * raw_weight
+                       + (1.0 - weight_smoothing) * last_weight_filtered;
 
-  float normalizedWeight = getNormalizedWeight(weightFiltered);
+  float normalized_weight = get_normalized_weight(weight_filtered);
 
-  float rawRate = (normalizedWeight - lastNormalizedWeight) / dt;
+  float raw_rate = (normalized_weight - last_normalized_weight) / dt;
 
-  rateFiltered = rateSmoothing * rawRate
-               + (1.0 - rateSmoothing) * rateFiltered;
+  rate_filtered = rate_smoothing * raw_rate
+               + (1.0 - rate_smoothing) * rate_filtered;
 
-  float activityAbs = fabs(rateFiltered);
+  float activity_abs = fabs(rate_filtered);
 
-  if (activityAbs > breathDetectThreshold) {
-    lastBreathDetectedTime = now;
+  if (activity_abs > breath_detect_threshold) {
+    last_breath_detected_time = now;
   }
 
-  lastWeightFiltered = weightFiltered;
-  lastNormalizedWeight = normalizedWeight;
-  lastTime = now;
+  last_weight_filtered = weight_filtered;
+  last_normalized_weight = normalized_weight;
+  last_time = now;
 
   int pwm = 0;
 
-  if (currentMode == MODE_ABSOLUTE) {
-    pwm = mapFloatToPWM(weightFiltered, calibratedMin, calibratedMax);
-    pwm = applyMotorFloor(pwm);
+  if (current_mode == MODE_ABSOLUTE) {
+    pwm = map_float_to_pwm(weight_filtered, calibrated_min, calibrated_max);
+    pwm = apply_motor_floor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
 
-  else if (currentMode == MODE_RATE) {
-    float r = clampFloat(activityAbs, minRate, maxRate);
-    pwm = mapFloatToPWM(r, minRate, maxRate);
-    pwm = applyMotorFloor(pwm);
+  else if (current_mode == MODE_RATE) {
+    float r = clamp_float(activity_abs, min_rate, max_rate);
+    pwm = map_float_to_pwm(r, min_rate, max_rate);
+    pwm = apply_motor_floor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
 
-  else if (currentMode == MODE_NO_BREATH_ALERT) {
-    unsigned long quietTime = now - lastBreathDetectedTime;
+  else if (current_mode == MODE_NO_BREATH_ALERT) {
+    unsigned long quiet_time = now - last_breath_detected_time;
 
-    if (quietTime < noBreathTimeout) {
+    if (quiet_time < no_breath_timeout) {
       pwm = 0;
     } else {
-      unsigned long alertElapsed = quietTime - noBreathTimeout;
+      unsigned long alert_elapsed = quiet_time - no_breath_timeout;
 
-      float rampProgress = (float)alertElapsed / (float)pulseRampTime;
-      if (rampProgress > 1.0) {
-        rampProgress = 1.0;
+      float ramp_progress = (float)alert_elapsed / (float)pulse_ramp_time;
+      if (ramp_progress > 1.0) {
+        ramp_progress = 1.0;
       }
 
-      int pulseStrength = alertMinPWM + (int)((alertMaxPWM - alertMinPWM) * rampProgress);
-      unsigned long pulsePhase = alertElapsed % pulsePeriod;
+      int pulse_strength = alert_min_pwm + (int)((alert_max_pwm - alert_min_pwm) * ramp_progress);
+      unsigned long pulse_phase = alert_elapsed % pulse_period;
 
-      if (pulsePhase < pulseOnTime) {
-        pwm = pulseStrength;
+      if (pulse_phase < pulse_on_time) {
+        pwm = pulse_strength;
       } else {
         pwm = 0;
       }
     }
 
-    pwm = applyMotorFloor(pwm);
+    pwm = apply_motor_floor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
 
-  Serial.print(forceAbs, 2);
+  Serial.print(force_abs, 2);
   Serial.print('\t');
   Serial.println(pwm);
 
   delay(100);
+}
+
+// -------------------------------------------------------------
+// Helper
+// -------------------------------------------------------------
+float clamp_float(float x, float lo, float hi) {
+  if (x < lo) return lo;
+  if (x > hi) return hi;
+  return x;
+}
+
+int map_float_to_pwm(float x, float in_min, float in_max) {
+  if (in_max == in_min) {
+    return 0;
+  }
+
+  float result = (x - in_min) * 255.0 / (in_max - in_min);
+  result = clamp_float(result, 0.0, 255.0);
+
+  return (int)result;
+}
+
+int apply_motor_floor(int pwm) {
+  if (pwm <= 0) {
+    return 0;
+  }
+
+  if (pwm < MIN_MOTOR_PWM) {
+    return MIN_MOTOR_PWM;
+  }
+
+  if (pwm > 255) {
+    return 255;
+  }
+
+  return pwm;
+}
+
+float get_weight() {
+  long raw = scale.read();
+  return (raw - zero_offset) / scale_factor;
+}
+
+float get_normalized_weight(float weight) {
+  float span = calibrated_max - calibrated_min;
+
+  if (span < min_calibration_span) {
+    span = min_calibration_span;
+  }
+
+  float normalized = (weight - calibrated_min) / span;
+  return clamp_float(normalized, 0.0, 1.0);
+}
+
+// -------------------------------------------------------------
+// NEW: motor signal for calibration start
+// -------------------------------------------------------------
+void signal_calibration_mode_with_motor() {
+  int pwm = apply_motor_floor(CALIBRATION_SIGNAL_PWM);
+
+  for (int i = 0; i < 2; i++) {
+    analogWrite(MOTOR_PIN, pwm);
+    delay(CALIBRATION_SIGNAL_ON_TIME);
+
+    analogWrite(MOTOR_PIN, 0);
+
+    if (i < 1) {
+      delay(CALIBRATION_SIGNAL_OFF_TIME);
+    }
+  }
+}
+
+// -------------------------------------------------------------
+// LED feedback for current mode
+// -------------------------------------------------------------
+void blink_n_times(int n) {
+  for (int i = 0; i < n; i++) {
+    digitalWrite(LED_PIN, HIGH);
+    delay(blink_on_time);
+
+    digitalWrite(LED_PIN, LOW);
+    delay(blink_off_time);
+  }
+}
+
+void indicate_current_mode() {
+  if (current_mode == MODE_ABSOLUTE) {
+    blink_n_times(1);
+  } else if (current_mode == MODE_RATE) {
+    blink_n_times(2);
+  } else if (current_mode == MODE_NO_BREATH_ALERT) {
+    blink_n_times(3);
+  }
+}
+
+void reset_signal_state() {
+  last_time = millis();
+
+  if (scale.is_ready()) {
+    float w = get_weight();
+    last_weight_filtered = w;
+    last_normalized_weight = get_normalized_weight(w);
+  } else {
+    last_weight_filtered = 0.0;
+    last_normalized_weight = 0.0;
+  }
+
+  rate_filtered = 0.0;
+  filter_initialized = true;
+  last_breath_detected_time = millis();
+}
+
+// -------------------------------------------------------------
+// Start calibration
+// -------------------------------------------------------------
+void start_calibration() {
+  previous_calibrated_min = calibrated_min;
+  previous_calibrated_max = calibrated_max;
+
+  analogWrite(MOTOR_PIN, 0);
+
+  // NEW: two short motor pulses to signal calibration mode
+  signal_calibration_mode_with_motor();
+
+  is_calibrating = true;
+  calibration_start_time = millis();
+  calibration_has_reading = false;
+
+  calibration_min_reading = 0.0;
+  calibration_max_reading = 0.0;
+
+  calibration_led_state = true;
+  last_calibration_led_toggle = millis();
+  digitalWrite(LED_PIN, HIGH);
+
+  filter_initialized = false;
+
+  Serial.println("CALIBRATION_START");
+}
+
+void finish_calibration() {
+  is_calibrating = false;
+  digitalWrite(LED_PIN, LOW);
+
+  if (calibration_has_reading) {
+    float span = calibration_max_reading - calibration_min_reading;
+
+    if (span >= min_calibration_span) {
+      calibrated_min = calibration_min_reading;
+      calibrated_max = calibration_max_reading;
+    } else {
+      calibrated_min = previous_calibrated_min;
+      calibrated_max = previous_calibrated_max;
+    }
+  } else {
+    calibrated_min = previous_calibrated_min;
+    calibrated_max = previous_calibrated_max;
+  }
+
+  reset_signal_state();
+
+  Serial.print("CALIBRATION_DONE\tMIN=");
+  Serial.print(calibrated_min, 2);
+  Serial.print("\tMAX=");
+  Serial.println(calibrated_max, 2);
+
+  indicate_current_mode();
+}
+
+void update_calibration_led(unsigned long now) {
+  if (now - last_calibration_led_toggle >= calibration_led_interval) {
+    calibration_led_state = !calibration_led_state;
+    digitalWrite(LED_PIN, calibration_led_state ? HIGH : LOW);
+    last_calibration_led_toggle = now;
+  }
+}
+
+void next_mode() {
+  if (current_mode == MODE_ABSOLUTE) {
+    current_mode = MODE_RATE;
+  } else if (current_mode == MODE_RATE) {
+    current_mode = MODE_NO_BREATH_ALERT;
+  } else {
+    current_mode = MODE_ABSOLUTE;
+  }
+
+  reset_signal_state();
+  indicate_current_mode();
 }

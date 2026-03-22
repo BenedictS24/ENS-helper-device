@@ -12,29 +12,29 @@ String mode = "absolute";   // "absolute" or "rate"
 
 // HX711 pins
 const int PIN_DOUT = 7;
-const int PIN_SCK  = 9;
+const int PIN_SCK = 9;
 
 // Vibration motor
 const int MOTOR_PIN = 5;
 
 // Calibration values
-long  zeroOffset  = 102000;   // raw reading at no load
-float scaleFactor = 1000.0;   // raw units per gram
+long zero_offset = 102000;   // raw reading at no load
+float scale_factor = 1000.0;   // raw units per gram
 
 HX711 scale;
 
 // ----- Absolute-force mode settings --------------------------------
-float minWeight = 0.0;        // grams → no vibration below this
-float maxWeight = 2000.0;     // grams → max vibration at/above this
+float min_weight = 0.0;        // grams → no vibration below this
+float max_weight = 2000.0;     // grams → max vibration at/above this
 
 // ----- Rate-of-change mode settings -------------------------------
-float lastWeight = 0.0;       // grams
-unsigned long lastTime = 0;   // ms
+float last_weight = 0.0;       // grams
+unsigned long last_time = 0;   // ms
 
-float maxRate = 200.0;        // g/s mapped to max vibration
-float minRate = 0.0;          // vibration starts above this threshold
+float max_rate = 200.0;        // g/s mapped to max vibration
+float min_rate = 0.0;          // vibration starts above this threshold
 
-float rateFiltered = 0.0;
+float rate_filtered = 0.0;
 float smoothing = 0.1;        // exponential smoothing factor
 
 
@@ -49,18 +49,18 @@ void setup() {
   analogWrite(MOTOR_PIN, 0);
 
   // Initialize rate-of-change reference
-  lastTime = millis();
+  last_time = millis();
   long raw = scale.read();
-  lastWeight = (raw - zeroOffset) / scaleFactor;
+  last_weight = (raw - zero_offset) / scale_factor;
 }
 
 
 // -------------------------------------------------------------
 // Helper: read current weight in grams
 // -------------------------------------------------------------
-float getWeight() {
+float get_weight() {
   long raw = scale.read();
-  return (raw - zeroOffset) / scaleFactor;
+  return (raw - zero_offset) / scale_factor;
 }
 
 
@@ -75,7 +75,7 @@ void loop() {
     return;
   }
 
-  float weight = getWeight();
+  float weight = get_weight();
   int pwm = 0;   // motor output (0–255)
 
   // -------------------------------------------------------------
@@ -85,8 +85,8 @@ void loop() {
 
     Serial.println(weight);
 
-    float w = constrain(weight, minWeight, maxWeight);
-    pwm = map(w, minWeight, maxWeight, 0, 255);
+    float w = constrain(weight, min_weight, max_weight);
+    pwm = map(w, min_weight, max_weight, 0, 255);
     analogWrite(MOTOR_PIN, pwm);
   }
 
@@ -96,29 +96,29 @@ void loop() {
   else if (mode == "rate") {
 
     unsigned long now = millis();
-    float dt = (now - lastTime) / 1000.0;
+    float dt = (now - last_time) / 1000.0;
     if (dt <= 0) dt = 0.001;
 
-    float rate = (weight - lastWeight) / dt;
+    float rate = (weight - last_weight) / dt;
 
     // Stabilize signal
-    rateFiltered = smoothing * rate + (1.0 - smoothing) * rateFiltered;
+    rate_filtered = smoothing * rate + (1.0 - smoothing) * rate_filtered;
 
-    float r = fabs(rateFiltered);
-    r = constrain(r, minRate, maxRate);
+    float r = fabs(rate_filtered);
+    r = constrain(r, min_rate, max_rate);
 
-    pwm = map(r, minRate, maxRate, 0, 255);
+    pwm = map(r, min_rate, max_rate, 0, 255);
     analogWrite(MOTOR_PIN, pwm);
 
     // For serial plotter: weight, rate, pwm
     Serial.print(weight, 2);
     Serial.print('\t');
-    Serial.print(rateFiltered, 2);
+    Serial.print(rate_filtered, 2);
     Serial.print('\t');
     Serial.println(pwm);
 
-    lastWeight = weight;
-    lastTime = now;
+    last_weight = weight;
+    last_time = now;
   }
 
   // -------------------------------------------------------------
