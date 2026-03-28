@@ -12,7 +12,7 @@ const int BUTTON_PIN = 2;
 const int LED_PIN = 3;
 
 // Minimum PWM to help the motor overcome stiction when enabled
-const int MIN_MOTOR_PWM = 45;
+const int MIN_MOTOR_PWM = 5;
 
 // -------------------------------------------------------------
 // Motor signal for calibration mode
