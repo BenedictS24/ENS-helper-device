@@ -12,7 +12,7 @@ const int BUTTON_PIN = 2;
 const int LED_PIN = 3;
 
 // Minimum PWM to help the motor overcome stiction when enabled
-const int MIN_MOTOR_PWM = 5;
+const int MIN_MOTOR_PWM = 10;
 
 // -------------------------------------------------------------
 // Motor signal for calibration mode
@@ -99,16 +99,16 @@ float max_rate = 1.2;
 // No breath alert mode
 // -------------------------------------------------------------
 unsigned long last_breath_detected_time = 0;
-unsigned long no_breath_timeout = 5000;
+unsigned long no_breath_timeout = 10000;
 
-float breath_detect_threshold = 0.03;
+float breath_detect_threshold = 0.04;
 
 unsigned long pulse_period = 1600;
-unsigned long pulse_on_time = 250;
-unsigned long pulse_ramp_time = 10000;
+unsigned long pulse_on_time = 350;
+unsigned long pulse_ramp_time = 5000;
 
-int alert_min_pwm = 60;
-int alert_max_pwm = 160;
+int alert_min_pwm = 20;
+int alert_max_pwm = 120;
 
 float clamp_float(float x, float lo, float hi);
 int map_float_to_pwm(float x, float in_min, float in_max);
