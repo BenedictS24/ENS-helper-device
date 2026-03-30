@@ -40,7 +40,7 @@ bool long_press_handled = false;
 // -------------------------------------------------------------
 // HX711 / calibration
 // -------------------------------------------------------------
-HX711 scale;
+HX711 load_cell;
 
 long zero_offset = 102000;
 float scale_factor = 1000.0;
@@ -58,8 +58,8 @@ bool is_calibrating = false;
 unsigned long calibration_start_time = 0;
 const unsigned long calibration_duration = 10000;
 
-float calibration_min_reading = 0.0;
-float calibration_max_reading = 0.0;
+float calibration_min_signal = 0.0;
+float calibration_max_signal = 0.0;
 bool calibration_has_reading = false;
 
 const float min_calibration_span = 30.0;
@@ -74,8 +74,8 @@ const unsigned long calibration_led_interval = 120;
 float last_valid_force_abs = 0.0;
 bool have_valid_force_abs = false;
 
-float last_valid_calibration_weight = 0.0;
-bool have_valid_calibration_weight = false;
+float last_valid_calibration_signal = 0.0;
+bool have_valid_calibration_signal = false;
 
 // -------------------------------------------------------------
 // Feedback modes
@@ -92,7 +92,7 @@ FeedbackMode current_mode = MODE_ABSOLUTE;
 // Rate of change mode
 // -------------------------------------------------------------
 unsigned long last_time = 0;
-float last_weight_filtered = 0.0;
+float last_signal_filtered = 0.0;
 float last_normalized_weight = 0.0;
 float rate_filtered = 0.0;
 
@@ -122,7 +122,7 @@ int alert_max_pwm = 120;
 float clamp_float(float x, float lo, float hi);
 int map_float_to_pwm(float x, float in_min, float in_max);
 int apply_motor_floor(int pwm);
-float get_weight();
+float get_load_cell_signal();
 float get_normalized_weight(float weight);
 void signal_calibration_start_or_end();
 void blink_n_times(int n);
@@ -136,7 +136,7 @@ void next_mode();
 void setup() {
   Serial.begin(57600);
 
-  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+  load_cell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
 
   pinMode(MOTOR_PIN, OUTPUT);
   analogWrite(MOTOR_PIN, 0);
@@ -186,28 +186,28 @@ void loop() {
     analogWrite(MOTOR_PIN, 0);
     update_calibration_led(now);
 
-    if (scale.is_ready()) {
-      float raw_weight = get_weight();
+    if (load_cell.is_ready()) {
+      float raw_signal = get_load_cell_signal();
 
       if (!calibration_has_reading) {
-        calibration_min_reading = raw_weight;
-        calibration_max_reading = raw_weight;
+        calibration_min_signal = raw_signal;
+        calibration_max_signal = raw_signal;
         calibration_has_reading = true;
       } else {
-        if (raw_weight < calibration_min_reading) calibration_min_reading = raw_weight;
-        if (raw_weight > calibration_max_reading) calibration_max_reading = raw_weight;
+        if (raw_signal < calibration_min_signal) calibration_min_signal = raw_signal;
+        if (raw_signal > calibration_max_signal) calibration_max_signal = raw_signal;
       }
 
-      last_valid_calibration_weight = raw_weight;
-      have_valid_calibration_weight = true;
+      last_valid_calibration_signal = raw_signal;
+      have_valid_calibration_signal = true;
 
-      Serial.print(raw_weight, 2);
+      Serial.print(raw_signal, 2);
       Serial.print('\t');
       Serial.println(0);
     } else {
-      float plot_weight = have_valid_calibration_weight ? last_valid_calibration_weight : 0.0;
+      float plot_signal = have_valid_calibration_signal ? last_valid_calibration_signal : 0.0;
 
-      Serial.print(plot_weight, 2);
+      Serial.print(plot_signal, 2);
       Serial.print('\t');
       Serial.println(0);
     }
@@ -220,7 +220,7 @@ void loop() {
     return;
   }
 
-  if (!scale.is_ready()) {
+  if (!load_cell.is_ready()) {
     analogWrite(MOTOR_PIN, 0);
 
     float plot_force = have_valid_force_abs ? last_valid_force_abs : 0.0;
@@ -233,15 +233,15 @@ void loop() {
     return;
   }
 
-  float raw_weight = get_weight();
-  float force_abs = fabs(raw_weight);
+  float raw_signal = get_load_cell_signal();
+  float force_abs = fabs(raw_signal);
 
   last_valid_force_abs = force_abs;
   have_valid_force_abs = true;
 
   if (!filter_initialized) {
-    last_weight_filtered = raw_weight;
-    last_normalized_weight = get_normalized_weight(raw_weight);
+    last_signal_filtered = raw_signal;
+    last_normalized_weight = get_normalized_weight(raw_signal);
     last_time = now;
     rate_filtered = 0.0;
     filter_initialized = true;
@@ -253,15 +253,15 @@ void loop() {
     dt = 0.001;
   }
 
-  float weight_filtered = weight_smoothing * raw_weight
-                       + (1.0 - weight_smoothing) * last_weight_filtered;
+  float signal_filtered = weight_smoothing * raw_signal
+                        + (1.0 - weight_smoothing) * last_signal_filtered;
 
-  float normalized_weight = get_normalized_weight(weight_filtered);
+  float normalized_weight = get_normalized_weight(signal_filtered);
 
   float raw_rate = (normalized_weight - last_normalized_weight) / dt;
 
   rate_filtered = rate_smoothing * raw_rate
-               + (1.0 - rate_smoothing) * rate_filtered;
+                + (1.0 - rate_smoothing) * rate_filtered;
 
   float activity_abs = fabs(rate_filtered);
 
@@ -269,14 +269,14 @@ void loop() {
     last_breath_detected_time = now;
   }
 
-  last_weight_filtered = weight_filtered;
+  last_signal_filtered = signal_filtered;
   last_normalized_weight = normalized_weight;
   last_time = now;
 
   int pwm = 0;
 
   if (current_mode == MODE_ABSOLUTE) {
-    pwm = map_float_to_pwm(weight_filtered, calibrated_min, calibrated_max);
+    pwm = map_float_to_pwm(signal_filtered, calibrated_min, calibrated_max);
     pwm = apply_motor_floor(pwm);
     analogWrite(MOTOR_PIN, pwm);
   }
@@ -358,8 +358,8 @@ int apply_motor_floor(int pwm) {
   return pwm;
 }
 
-float get_weight() {
-  long raw = scale.read();
+float get_load_cell_signal() {
+  long raw = load_cell.read();
   return (raw - zero_offset) / scale_factor;
 }
 
@@ -420,14 +420,14 @@ void indicate_current_mode() {
 void reset_signal_state() {
   last_time = millis();
 
-  if (scale.is_ready()) {
-    float w = get_weight();
-    last_weight_filtered = w;
-    last_normalized_weight = get_normalized_weight(w);
-    last_valid_force_abs = fabs(w);
+  if (load_cell.is_ready()) {
+    float s = get_load_cell_signal();
+    last_signal_filtered = s;
+    last_normalized_weight = get_normalized_weight(s);
+    last_valid_force_abs = fabs(s);
     have_valid_force_abs = true;
   } else {
-    last_weight_filtered = 0.0;
+    last_signal_filtered = 0.0;
     last_normalized_weight = 0.0;
   }
 
@@ -452,10 +452,10 @@ void start_calibration() {
   calibration_start_time = millis();
   calibration_has_reading = false;
 
-  calibration_min_reading = 0.0;
-  calibration_max_reading = 0.0;
+  calibration_min_signal = 0.0;
+  calibration_max_signal = 0.0;
 
-  have_valid_calibration_weight = false;
+  have_valid_calibration_signal = false;
 
   calibration_led_state = true;
   last_calibration_led_toggle = millis();
@@ -472,11 +472,11 @@ void finish_calibration() {
   analogWrite(MOTOR_PIN, 0);
 
   if (calibration_has_reading) {
-    float span = calibration_max_reading - calibration_min_reading;
+    float span = calibration_max_signal - calibration_min_signal;
 
     if (span >= min_calibration_span) {
-      calibrated_min = calibration_min_reading;
-      calibrated_max = calibration_max_reading;
+      calibrated_min = calibration_min_signal;
+      calibrated_max = calibration_max_signal;
     } else {
       calibrated_min = previous_calibrated_min;
       calibrated_max = previous_calibrated_max;
