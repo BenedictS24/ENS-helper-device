@@ -115,7 +115,7 @@ int map_float_to_pwm(float x, float in_min, float in_max);
 int apply_motor_floor(int pwm);
 float get_weight();
 float get_normalized_weight(float weight);
-void signal_calibration_mode_with_motor();
+void signal_calibration_start_or_end();
 void blink_n_times(int n);
 void indicate_current_mode();
 void reset_signal_state();
@@ -356,15 +356,17 @@ float get_normalized_weight(float weight) {
 }
 
 // -------------------------------------------------------------
-// NEW: motor signal for calibration start
+// Combined LED + motor signal for calibration start/end
 // -------------------------------------------------------------
-void signal_calibration_mode_with_motor() {
+void signal_calibration_start_or_end() {
   int pwm = apply_motor_floor(CALIBRATION_SIGNAL_PWM);
 
   for (int i = 0; i < 2; i++) {
+    digitalWrite(LED_PIN, HIGH);
     analogWrite(MOTOR_PIN, pwm);
     delay(CALIBRATION_SIGNAL_ON_TIME);
 
+    digitalWrite(LED_PIN, LOW);
     analogWrite(MOTOR_PIN, 0);
 
     if (i < 1) {
@@ -421,9 +423,10 @@ void start_calibration() {
   previous_calibrated_max = calibrated_max;
 
   analogWrite(MOTOR_PIN, 0);
+  digitalWrite(LED_PIN, LOW);
 
-  // NEW: two short motor pulses to signal calibration mode
-  signal_calibration_mode_with_motor();
+  // two short LED blinks + two short motor pulses
+  signal_calibration_start_or_end();
 
   is_calibrating = true;
   calibration_start_time = millis();
@@ -444,6 +447,7 @@ void start_calibration() {
 void finish_calibration() {
   is_calibrating = false;
   digitalWrite(LED_PIN, LOW);
+  analogWrite(MOTOR_PIN, 0);
 
   if (calibration_has_reading) {
     float span = calibration_max_reading - calibration_min_reading;
@@ -459,6 +463,9 @@ void finish_calibration() {
     calibrated_min = previous_calibrated_min;
     calibrated_max = previous_calibrated_max;
   }
+
+  // same signal again after calibration ends
+  signal_calibration_start_or_end();
 
   reset_signal_state();
 
