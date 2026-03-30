@@ -69,6 +69,15 @@ bool calibration_led_state = false;
 const unsigned long calibration_led_interval = 120;
 
 // -------------------------------------------------------------
+// Last valid values for plotting if HX711 is temporarily not ready
+// -------------------------------------------------------------
+float last_valid_force_abs = 0.0;
+bool have_valid_force_abs = false;
+
+float last_valid_calibration_weight = 0.0;
+bool have_valid_calibration_weight = false;
+
+// -------------------------------------------------------------
 // Feedback modes
 // -------------------------------------------------------------
 enum FeedbackMode {
@@ -189,11 +198,16 @@ void loop() {
         if (raw_weight > calibration_max_reading) calibration_max_reading = raw_weight;
       }
 
+      last_valid_calibration_weight = raw_weight;
+      have_valid_calibration_weight = true;
+
       Serial.print(raw_weight, 2);
       Serial.print('\t');
       Serial.println(0);
     } else {
-      Serial.print(0.0, 2);
+      float plot_weight = have_valid_calibration_weight ? last_valid_calibration_weight : 0.0;
+
+      Serial.print(plot_weight, 2);
       Serial.print('\t');
       Serial.println(0);
     }
@@ -209,7 +223,9 @@ void loop() {
   if (!scale.is_ready()) {
     analogWrite(MOTOR_PIN, 0);
 
-    Serial.print(0.0, 2);
+    float plot_force = have_valid_force_abs ? last_valid_force_abs : 0.0;
+
+    Serial.print(plot_force, 2);
     Serial.print('\t');
     Serial.println(0);
 
@@ -219,6 +235,9 @@ void loop() {
 
   float raw_weight = get_weight();
   float force_abs = fabs(raw_weight);
+
+  last_valid_force_abs = force_abs;
+  have_valid_force_abs = true;
 
   if (!filter_initialized) {
     last_weight_filtered = raw_weight;
@@ -405,6 +424,8 @@ void reset_signal_state() {
     float w = get_weight();
     last_weight_filtered = w;
     last_normalized_weight = get_normalized_weight(w);
+    last_valid_force_abs = fabs(w);
+    have_valid_force_abs = true;
   } else {
     last_weight_filtered = 0.0;
     last_normalized_weight = 0.0;
@@ -425,7 +446,6 @@ void start_calibration() {
   analogWrite(MOTOR_PIN, 0);
   digitalWrite(LED_PIN, LOW);
 
-  // two short LED blinks + two short motor pulses
   signal_calibration_start_or_end();
 
   is_calibrating = true;
@@ -434,6 +454,8 @@ void start_calibration() {
 
   calibration_min_reading = 0.0;
   calibration_max_reading = 0.0;
+
+  have_valid_calibration_weight = false;
 
   calibration_led_state = true;
   last_calibration_led_toggle = millis();
@@ -464,7 +486,6 @@ void finish_calibration() {
     calibrated_max = previous_calibrated_max;
   }
 
-  // same signal again after calibration ends
   signal_calibration_start_or_end();
 
   reset_signal_state();
