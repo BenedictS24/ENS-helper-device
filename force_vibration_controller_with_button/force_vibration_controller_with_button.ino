@@ -101,11 +101,11 @@ float max_rate = 1.2;
 unsigned long last_breath_detected_time = 0;
 unsigned long no_breath_timeout = 10000;
 
-float breath_detect_threshold = 0.04;
+float breath_detect_threshold = 0.025;
 
 unsigned long pulse_period = 1600;
 unsigned long pulse_on_time = 350;
-unsigned long pulse_ramp_time = 5000;
+unsigned long pulse_ramp_time = 8000;
 
 int alert_min_pwm = 20;
 int alert_max_pwm = 120;
