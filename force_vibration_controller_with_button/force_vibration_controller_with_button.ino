@@ -111,7 +111,7 @@ float max_rate = 1.2;
 unsigned long last_breath_detected_time = 0;
 unsigned long no_breath_timeout = 8000;
 
-float breath_detect_threshold = 0.03;
+float breath_detect_threshold = 0.035;
 
 unsigned long pulse_period = 1600;
 unsigned long pulse_on_time = 350;
@@ -130,6 +130,11 @@ const float absolute_mode_deadzone_percent = 10.0;
 
 // > 1.0 = sanfterer Anstieg am Anfang
 const float absolute_mode_curve_exponent = 1.2;
+
+// -------------------------------------------------------------
+// Rate mode tuning
+// -------------------------------------------------------------
+const int rate_mode_max_pwm = 30;
 
 // -------------------------------------------------------------
 // Function declarations
@@ -324,7 +329,14 @@ void loop() {
     else if (current_mode == MODE_RATE) {
       float r = clamp_float(activity_abs, min_rate, max_rate);
       pwm = map_float_to_pwm(r, min_rate, max_rate);
-      pwm = apply_motor_floor(pwm);
+
+      if (pwm > rate_mode_max_pwm) {
+        pwm = rate_mode_max_pwm;
+      }
+
+      if (pwm > 0) {
+        pwm = apply_motor_floor(pwm);
+      }
     }
 
     else if (current_mode == MODE_NO_BREATH_ALERT) {
