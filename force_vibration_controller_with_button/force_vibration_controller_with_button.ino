@@ -54,6 +54,8 @@ float calibrated_max = 150.0;
 float previous_calibrated_min = -150.0;
 float previous_calibrated_max = 150.0;
 
+bool has_valid_calibration = false;
+
 bool is_calibrating = false;
 unsigned long calibration_start_time = 0;
 const unsigned long calibration_duration = 10000;
@@ -93,10 +95,10 @@ FeedbackMode current_mode = MODE_ABSOLUTE;
 // -------------------------------------------------------------
 unsigned long last_time = 0;
 float last_signal_filtered = 0.0;
-float last_normalized_weight = 0.0;
+float last_normalized_signal = 0.0;
 float rate_filtered = 0.0;
 
-float weight_smoothing = 0.12;
+float signal_smoothing = 0.12;
 float rate_smoothing = 0.10;
 
 bool filter_initialized = false;
@@ -123,7 +125,7 @@ float clamp_float(float x, float lo, float hi);
 int map_float_to_pwm(float x, float in_min, float in_max);
 int apply_motor_floor(int pwm);
 float get_load_cell_signal();
-float get_normalized_weight(float weight);
+float get_normalized_signal(float signal_value);
 void signal_calibration_start_or_end();
 void blink_n_times(int n);
 void indicate_current_mode();
@@ -241,7 +243,7 @@ void loop() {
 
   if (!filter_initialized) {
     last_signal_filtered = raw_signal;
-    last_normalized_weight = get_normalized_weight(raw_signal);
+    last_normalized_signal = get_normalized_signal(raw_signal);
     last_time = now;
     rate_filtered = 0.0;
     filter_initialized = true;
@@ -253,12 +255,12 @@ void loop() {
     dt = 0.001;
   }
 
-  float signal_filtered = weight_smoothing * raw_signal
-                        + (1.0 - weight_smoothing) * last_signal_filtered;
+  float signal_filtered = signal_smoothing * raw_signal
+                        + (1.0 - signal_smoothing) * last_signal_filtered;
 
-  float normalized_weight = get_normalized_weight(signal_filtered);
+  float normalized_signal = get_normalized_signal(signal_filtered);
 
-  float raw_rate = (normalized_weight - last_normalized_weight) / dt;
+  float raw_rate = (normalized_signal - last_normalized_signal) / dt;
 
   rate_filtered = rate_smoothing * raw_rate
                 + (1.0 - rate_smoothing) * rate_filtered;
@@ -270,50 +272,60 @@ void loop() {
   }
 
   last_signal_filtered = signal_filtered;
-  last_normalized_weight = normalized_weight;
+  last_normalized_signal = normalized_signal;
   last_time = now;
 
   int pwm = 0;
 
-  if (current_mode == MODE_ABSOLUTE) {
-    pwm = map_float_to_pwm(signal_filtered, calibrated_min, calibrated_max);
-    pwm = apply_motor_floor(pwm);
-    analogWrite(MOTOR_PIN, pwm);
-  }
+  if (has_valid_calibration) {
+    if (current_mode == MODE_ABSOLUTE) {
+      float abs_signal = fabs(signal_filtered);
+      float abs_max = fmax(fabs(calibrated_min), fabs(calibrated_max));
 
-  else if (current_mode == MODE_RATE) {
-    float r = clamp_float(activity_abs, min_rate, max_rate);
-    pwm = map_float_to_pwm(r, min_rate, max_rate);
-    pwm = apply_motor_floor(pwm);
-    analogWrite(MOTOR_PIN, pwm);
-  }
-
-  else if (current_mode == MODE_NO_BREATH_ALERT) {
-    unsigned long quiet_time = now - last_breath_detected_time;
-
-    if (quiet_time < no_breath_timeout) {
-      pwm = 0;
-    } else {
-      unsigned long alert_elapsed = quiet_time - no_breath_timeout;
-
-      float ramp_progress = (float)alert_elapsed / (float)pulse_ramp_time;
-      if (ramp_progress > 1.0) {
-        ramp_progress = 1.0;
+      if (abs_max < (min_calibration_span * 0.5)) {
+        abs_max = min_calibration_span * 0.5;
       }
 
-      int pulse_strength = alert_min_pwm + (int)((alert_max_pwm - alert_min_pwm) * ramp_progress);
-      unsigned long pulse_phase = alert_elapsed % pulse_period;
-
-      if (pulse_phase < pulse_on_time) {
-        pwm = pulse_strength;
-      } else {
-        pwm = 0;
-      }
+      pwm = map_float_to_pwm(abs_signal, 0.0, abs_max);
+      pwm = apply_motor_floor(pwm);
     }
 
-    pwm = apply_motor_floor(pwm);
-    analogWrite(MOTOR_PIN, pwm);
+    else if (current_mode == MODE_RATE) {
+      float r = clamp_float(activity_abs, min_rate, max_rate);
+      pwm = map_float_to_pwm(r, min_rate, max_rate);
+      pwm = apply_motor_floor(pwm);
+    }
+
+    else if (current_mode == MODE_NO_BREATH_ALERT) {
+      unsigned long quiet_time = now - last_breath_detected_time;
+
+      if (quiet_time < no_breath_timeout) {
+        pwm = 0;
+      } else {
+        unsigned long alert_elapsed = quiet_time - no_breath_timeout;
+
+        float ramp_progress = (float)alert_elapsed / (float)pulse_ramp_time;
+        if (ramp_progress > 1.0) {
+          ramp_progress = 1.0;
+        }
+
+        int pulse_strength = alert_min_pwm + (int)((alert_max_pwm - alert_min_pwm) * ramp_progress);
+        unsigned long pulse_phase = alert_elapsed % pulse_period;
+
+        if (pulse_phase < pulse_on_time) {
+          pwm = pulse_strength;
+        } else {
+          pwm = 0;
+        }
+      }
+
+      pwm = apply_motor_floor(pwm);
+    }
+  } else {
+    pwm = 0;
   }
+
+  analogWrite(MOTOR_PIN, pwm);
 
   Serial.print(force_abs, 2);
   Serial.print('\t');
@@ -363,14 +375,14 @@ float get_load_cell_signal() {
   return (raw - zero_offset) / scale_factor;
 }
 
-float get_normalized_weight(float weight) {
+float get_normalized_signal(float signal_value) {
   float span = calibrated_max - calibrated_min;
 
   if (span < min_calibration_span) {
     span = min_calibration_span;
   }
 
-  float normalized = (weight - calibrated_min) / span;
+  float normalized = (signal_value - calibrated_min) / span;
   return clamp_float(normalized, 0.0, 1.0);
 }
 
@@ -423,12 +435,12 @@ void reset_signal_state() {
   if (load_cell.is_ready()) {
     float s = get_load_cell_signal();
     last_signal_filtered = s;
-    last_normalized_weight = get_normalized_weight(s);
+    last_normalized_signal = get_normalized_signal(s);
     last_valid_force_abs = fabs(s);
     have_valid_force_abs = true;
   } else {
     last_signal_filtered = 0.0;
-    last_normalized_weight = 0.0;
+    last_normalized_signal = 0.0;
   }
 
   rate_filtered = 0.0;
@@ -477,6 +489,7 @@ void finish_calibration() {
     if (span >= min_calibration_span) {
       calibrated_min = calibration_min_signal;
       calibrated_max = calibration_max_signal;
+      has_valid_calibration = true;
     } else {
       calibrated_min = previous_calibrated_min;
       calibrated_max = previous_calibrated_max;
@@ -493,7 +506,9 @@ void finish_calibration() {
   Serial.print("CALIBRATION_DONE\tMIN=");
   Serial.print(calibrated_min, 2);
   Serial.print("\tMAX=");
-  Serial.println(calibrated_max, 2);
+  Serial.print(calibrated_max, 2);
+  Serial.print("\tVALID=");
+  Serial.println(has_valid_calibration ? 1 : 0);
 
   indicate_current_mode();
 }
