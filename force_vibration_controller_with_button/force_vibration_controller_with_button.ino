@@ -123,8 +123,13 @@ int alert_max_pwm = 70;
 // -------------------------------------------------------------
 // Absolute mode tuning
 // -------------------------------------------------------------
-const int absolute_mode_max_pwm = 30;
-const float absolute_mode_deadzone = 8.0;
+const int absolute_mode_max_pwm = 40;
+
+// Prozent des halben kalibrierten Bereichs
+const float absolute_mode_deadzone_percent = 10.0;
+
+// > 1.0 = sanfterer Anstieg am Anfang
+const float absolute_mode_curve_exponent = 2.2;
 
 // -------------------------------------------------------------
 // Function declarations
@@ -287,23 +292,37 @@ void loop() {
 
   if (has_valid_calibration) {
     if (current_mode == MODE_ABSOLUTE) {
-      float abs_signal = fabs(signal_filtered);
-      float abs_max = fmax(fabs(calibrated_min), fabs(calibrated_max));
+      float calibration_span = calibrated_max - calibrated_min;
 
-      if (abs_max < (min_calibration_span * 0.5)) {
-        abs_max = min_calibration_span * 0.5;
+      if (calibration_span < min_calibration_span) {
+        calibration_span = min_calibration_span;
       }
 
-      if (abs_signal < absolute_mode_deadzone) {
+      float signal_center = 0.5 * (calibrated_min + calibrated_max);
+      float deviation_from_center = fabs(signal_filtered - signal_center);
+      float max_deviation = 0.5 * calibration_span;
+
+      // Deadzone relativ zum halben kalibrierten Bereich
+      float deadzone = (absolute_mode_deadzone_percent / 100.0) * max_deviation;
+
+      if (deadzone > (max_deviation * 0.90)) {
+        deadzone = max_deviation * 0.90;
+      }
+
+      if (deviation_from_center <= deadzone) {
         pwm = 0;
       } else {
-        pwm = map_float_to_pwm(abs_signal, absolute_mode_deadzone, abs_max);
+        float progress = (deviation_from_center - deadzone) / (max_deviation - deadzone);
+        progress = clamp_float(progress, 0.0, 1.0);
 
-        if (pwm > absolute_mode_max_pwm) {
-          pwm = absolute_mode_max_pwm;
+        // Gekrümmte Kennlinie für sanfteren Verlauf
+        float curved_progress = pow(progress, absolute_mode_curve_exponent);
+
+        pwm = (int)(curved_progress * absolute_mode_max_pwm);
+
+        if (pwm > 0) {
+          pwm = apply_motor_floor(pwm);
         }
-
-        pwm = apply_motor_floor(pwm);
       }
     }
 
