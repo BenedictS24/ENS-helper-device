@@ -63,7 +63,8 @@ float calibration_min_signal = 0.0;
 float calibration_max_signal = 0.0;
 bool calibration_has_reading = false;
 
-const float min_calibration_span = 30.0;
+// War vorher 30.0. Für dein aktuelles Signal wahrscheinlich zu groß.
+const float min_calibration_span = 5.0;
 
 unsigned long last_calibration_led_toggle = 0;
 bool calibration_led_state = false;
@@ -120,6 +121,9 @@ unsigned long pulse_ramp_time = 8000;
 int alert_min_pwm = 20;
 int alert_max_pwm = 100;
 
+// -------------------------------------------------------------
+// Function declarations
+// -------------------------------------------------------------
 float clamp_float(float x, float lo, float hi);
 int map_float_to_pwm(float x, float in_min, float in_max);
 int apply_motor_floor(int pwm);
@@ -182,8 +186,10 @@ void loop() {
   last_reading = reading;
 
   if (is_calibrating) {
+    unsigned long calibration_now = millis();
+
     analogWrite(MOTOR_PIN, 0);
-    update_calibration_led(now);
+    update_calibration_led(calibration_now);
 
     if (load_cell.is_ready()) {
       float raw_signal = get_load_cell_signal();
@@ -211,7 +217,7 @@ void loop() {
       Serial.println(0);
     }
 
-    if ((now - calibration_start_time) >= calibration_duration) {
+    if ((calibration_now - calibration_start_time) >= calibration_duration) {
       finish_calibration();
     }
 
@@ -480,10 +486,12 @@ void finish_calibration() {
   digitalWrite(LED_PIN, LOW);
   analogWrite(MOTOR_PIN, 0);
 
-  if (calibration_has_reading) {
-    float span = calibration_max_signal - calibration_min_signal;
+  float calibration_span = 0.0;
 
-    if (span >= min_calibration_span) {
+  if (calibration_has_reading) {
+    calibration_span = calibration_max_signal - calibration_min_signal;
+
+    if (calibration_span >= min_calibration_span) {
       calibrated_min = calibration_min_signal;
       calibrated_max = calibration_max_signal;
       has_valid_calibration = true;
@@ -504,6 +512,8 @@ void finish_calibration() {
   Serial.print(calibrated_min, 2);
   Serial.print("\tMAX=");
   Serial.print(calibrated_max, 2);
+  Serial.print("\tSPAN=");
+  Serial.print(calibration_span, 2);
   Serial.print("\tVALID=");
   Serial.println(has_valid_calibration ? 1 : 0);
 
