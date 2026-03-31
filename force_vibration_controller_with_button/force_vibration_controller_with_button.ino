@@ -63,7 +63,6 @@ float calibration_min_signal = 0.0;
 float calibration_max_signal = 0.0;
 bool calibration_has_reading = false;
 
-// War vorher 30.0. Für dein aktuelles Signal wahrscheinlich zu groß.
 const float min_calibration_span = 5.0;
 
 unsigned long last_calibration_led_toggle = 0;
@@ -112,14 +111,20 @@ float max_rate = 1.2;
 unsigned long last_breath_detected_time = 0;
 unsigned long no_breath_timeout = 8000;
 
-float breath_detect_threshold = 0.025;
+float breath_detect_threshold = 0.035;
 
 unsigned long pulse_period = 1600;
 unsigned long pulse_on_time = 350;
 unsigned long pulse_ramp_time = 8000;
 
 int alert_min_pwm = 20;
-int alert_max_pwm = 100;
+int alert_max_pwm = 70;
+
+// -------------------------------------------------------------
+// Absolute mode tuning
+// -------------------------------------------------------------
+const int absolute_mode_max_pwm = 30;
+const float absolute_mode_deadzone = 8.0;
 
 // -------------------------------------------------------------
 // Function declarations
@@ -289,8 +294,17 @@ void loop() {
         abs_max = min_calibration_span * 0.5;
       }
 
-      pwm = map_float_to_pwm(abs_signal, 0.0, abs_max);
-      pwm = apply_motor_floor(pwm);
+      if (abs_signal < absolute_mode_deadzone) {
+        pwm = 0;
+      } else {
+        pwm = map_float_to_pwm(abs_signal, absolute_mode_deadzone, abs_max);
+
+        if (pwm > absolute_mode_max_pwm) {
+          pwm = absolute_mode_max_pwm;
+        }
+
+        pwm = apply_motor_floor(pwm);
+      }
     }
 
     else if (current_mode == MODE_RATE) {
@@ -516,8 +530,6 @@ void finish_calibration() {
   Serial.print(calibration_span, 2);
   Serial.print("\tVALID=");
   Serial.println(has_valid_calibration ? 1 : 0);
-
-  indicate_current_mode();
 }
 
 void update_calibration_led(unsigned long now) {
