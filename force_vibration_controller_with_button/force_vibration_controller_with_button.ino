@@ -17,7 +17,7 @@ const int MIN_MOTOR_PWM = 10;
 // -------------------------------------------------------------
 // Motor signal for calibration mode
 // -------------------------------------------------------------
-const int CALIBRATION_SIGNAL_PWM = 110;
+const int CALIBRATION_SIGNAL_PWM = 40;
 const int CALIBRATION_SIGNAL_ON_TIME = 120;
 const int CALIBRATION_SIGNAL_OFF_TIME = 100;
 
@@ -25,7 +25,7 @@ const int CALIBRATION_SIGNAL_OFF_TIME = 100;
 // Button / LED settings
 // -------------------------------------------------------------
 const unsigned long debounce_delay = 40;
-const unsigned long long_press_duration = 5000;
+const unsigned long long_press_duration = 3000;
 
 const int blink_on_time = 250;
 const int blink_off_time = 250;
@@ -35,7 +35,6 @@ int button_state = HIGH;
 unsigned long last_debounce_time = 0;
 
 unsigned long button_press_start_time = 0;
-bool long_press_handled = false;
 
 // -------------------------------------------------------------
 // HX711 / calibration
@@ -110,7 +109,7 @@ float max_rate = 1.2;
 // No breath alert mode
 // -------------------------------------------------------------
 unsigned long last_breath_detected_time = 0;
-unsigned long no_breath_timeout = 10000;
+unsigned long no_breath_timeout = 8000;
 
 float breath_detect_threshold = 0.025;
 
@@ -119,7 +118,7 @@ unsigned long pulse_on_time = 350;
 unsigned long pulse_ramp_time = 8000;
 
 int alert_min_pwm = 20;
-int alert_max_pwm = 120;
+int alert_max_pwm = 100;
 
 float clamp_float(float x, float lo, float hi);
 int map_float_to_pwm(float x, float in_min, float in_max);
@@ -166,23 +165,21 @@ void loop() {
 
       if (button_state == LOW) {
         button_press_start_time = now;
-        long_press_handled = false;
       } else {
-        if (!long_press_handled && !is_calibrating) {
-          next_mode();
+        if (!is_calibrating) {
+          unsigned long press_duration = now - button_press_start_time;
+
+          if (press_duration >= long_press_duration) {
+            start_calibration();
+          } else {
+            next_mode();
+          }
         }
       }
     }
   }
 
   last_reading = reading;
-
-  if (button_state == LOW && !long_press_handled && !is_calibrating) {
-    if ((now - button_press_start_time) >= long_press_duration) {
-      start_calibration();
-      long_press_handled = true;
-    }
-  }
 
   if (is_calibrating) {
     analogWrite(MOTOR_PIN, 0);
