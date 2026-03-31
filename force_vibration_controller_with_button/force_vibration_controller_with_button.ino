@@ -111,7 +111,7 @@ float max_rate = 1.2;
 unsigned long last_breath_detected_time = 0;
 unsigned long no_breath_timeout = 8000;
 
-float breath_detect_threshold = 0.035;
+float breath_detect_threshold = 0.03;
 
 unsigned long pulse_period = 1600;
 unsigned long pulse_on_time = 350;
@@ -123,13 +123,13 @@ int alert_max_pwm = 70;
 // -------------------------------------------------------------
 // Absolute mode tuning
 // -------------------------------------------------------------
-const int absolute_mode_max_pwm = 40;
+const int absolute_mode_max_pwm = 50;
 
-// Prozent des halben kalibrierten Bereichs
+// Prozent der gesamten kalibrierten Spanne ab dem unteren Ende
 const float absolute_mode_deadzone_percent = 10.0;
 
 // > 1.0 = sanfterer Anstieg am Anfang
-const float absolute_mode_curve_exponent = 2.2;
+const float absolute_mode_curve_exponent = 1.2;
 
 // -------------------------------------------------------------
 // Function declarations
@@ -298,24 +298,19 @@ void loop() {
         calibration_span = min_calibration_span;
       }
 
-      float signal_center = 0.5 * (calibrated_min + calibrated_max);
-      float deviation_from_center = fabs(signal_filtered - signal_center);
-      float max_deviation = 0.5 * calibration_span;
+      float signal_from_min = signal_filtered - calibrated_min;
+      float deadzone = (absolute_mode_deadzone_percent / 100.0) * calibration_span;
 
-      // Deadzone relativ zum halben kalibrierten Bereich
-      float deadzone = (absolute_mode_deadzone_percent / 100.0) * max_deviation;
-
-      if (deadzone > (max_deviation * 0.90)) {
-        deadzone = max_deviation * 0.90;
+      if (deadzone > (calibration_span * 0.90)) {
+        deadzone = calibration_span * 0.90;
       }
 
-      if (deviation_from_center <= deadzone) {
+      if (signal_from_min <= deadzone) {
         pwm = 0;
       } else {
-        float progress = (deviation_from_center - deadzone) / (max_deviation - deadzone);
+        float progress = (signal_from_min - deadzone) / (calibration_span - deadzone);
         progress = clamp_float(progress, 0.0, 1.0);
 
-        // Gekrümmte Kennlinie für sanfteren Verlauf
         float curved_progress = pow(progress, absolute_mode_curve_exponent);
 
         pwm = (int)(curved_progress * absolute_mode_max_pwm);
