@@ -72,8 +72,8 @@ const unsigned long calibration_led_interval = 120;
 // -------------------------------------------------------------
 // Last valid values for plotting if HX711 is temporarily not ready
 // -------------------------------------------------------------
-float last_valid_force_abs = 0.0;
-bool have_valid_force_abs = false;
+float last_valid_signal = 0.0;
+bool have_valid_signal = false;
 
 float last_valid_calibration_signal = 0.0;
 bool have_valid_calibration_signal = false;
@@ -134,7 +134,7 @@ const float absolute_mode_curve_exponent = 1.2;
 // -------------------------------------------------------------
 // Rate mode tuning
 // -------------------------------------------------------------
-const int rate_mode_max_pwm = 30;
+const int rate_mode_max_pwm = 35;
 
 // -------------------------------------------------------------
 // Function declarations
@@ -152,6 +152,7 @@ void start_calibration();
 void finish_calibration();
 void update_calibration_led(unsigned long now);
 void next_mode();
+void print_plot_values(float signal_value, int pwm);
 
 void setup() {
   Serial.begin(57600);
@@ -221,15 +222,10 @@ void loop() {
       last_valid_calibration_signal = raw_signal;
       have_valid_calibration_signal = true;
 
-      Serial.print(raw_signal, 2);
-      Serial.print('\t');
-      Serial.println(0);
+      print_plot_values(raw_signal, 0);
     } else {
       float plot_signal = have_valid_calibration_signal ? last_valid_calibration_signal : 0.0;
-
-      Serial.print(plot_signal, 2);
-      Serial.print('\t');
-      Serial.println(0);
+      print_plot_values(plot_signal, 0);
     }
 
     if ((calibration_now - calibration_start_time) >= calibration_duration) {
@@ -243,21 +239,16 @@ void loop() {
   if (!load_cell.is_ready()) {
     analogWrite(MOTOR_PIN, 0);
 
-    float plot_force = have_valid_force_abs ? last_valid_force_abs : 0.0;
-
-    Serial.print(plot_force, 2);
-    Serial.print('\t');
-    Serial.println(0);
+    float plot_signal = have_valid_signal ? last_valid_signal : 0.0;
+    print_plot_values(plot_signal, 0);
 
     delay(100);
     return;
   }
 
   float raw_signal = get_load_cell_signal();
-  float force_abs = fabs(raw_signal);
-
-  last_valid_force_abs = force_abs;
-  have_valid_force_abs = true;
+  last_valid_signal = raw_signal;
+  have_valid_signal = true;
 
   if (!filter_initialized) {
     last_signal_filtered = raw_signal;
@@ -370,9 +361,7 @@ void loop() {
 
   analogWrite(MOTOR_PIN, pwm);
 
-  Serial.print(force_abs, 2);
-  Serial.print('\t');
-  Serial.println(pwm);
+  print_plot_values(raw_signal, pwm);
 
   delay(100);
 }
@@ -429,6 +418,19 @@ float get_normalized_signal(float signal_value) {
   return clamp_float(normalized, 0.0, 1.0);
 }
 
+void print_plot_values(float signal_value, int pwm) {
+  float plot_min = has_valid_calibration ? calibrated_min : 0.0;
+  float plot_max = has_valid_calibration ? calibrated_max : 0.0;
+
+  Serial.print(signal_value, 2);
+  Serial.print('\t');
+  Serial.print(pwm);
+  Serial.print('\t');
+  Serial.print(plot_min, 2);
+  Serial.print('\t');
+  Serial.println(plot_max, 2);
+}
+
 // -------------------------------------------------------------
 // Combined LED + motor signal for calibration start/end
 // -------------------------------------------------------------
@@ -479,8 +481,8 @@ void reset_signal_state() {
     float s = get_load_cell_signal();
     last_signal_filtered = s;
     last_normalized_signal = get_normalized_signal(s);
-    last_valid_force_abs = fabs(s);
-    have_valid_force_abs = true;
+    last_valid_signal = s;
+    have_valid_signal = true;
   } else {
     last_signal_filtered = 0.0;
     last_normalized_signal = 0.0;
