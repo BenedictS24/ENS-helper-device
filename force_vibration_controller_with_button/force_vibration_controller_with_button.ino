@@ -123,7 +123,7 @@ int alert_max_pwm = 70;
 // -------------------------------------------------------------
 // Absolute mode tuning
 // -------------------------------------------------------------
-const int absolute_mode_max_pwm = 50;
+const int absolute_mode_max_pwm = 60;
 
 // Prozent der gesamten kalibrierten Spanne ab dem unteren Ende
 const float absolute_mode_deadzone_percent = 5.0;   // was 10.0
@@ -134,7 +134,7 @@ const float absolute_mode_curve_exponent = 2.5;     // was 1.2
 // -------------------------------------------------------------
 // Rate mode tuning
 // -------------------------------------------------------------
-const int rate_mode_max_pwm = 25;                   // was 35
+const int rate_mode_max_pwm = 60;                   // was 35
 
 // -------------------------------------------------------------
 // Function declarations
