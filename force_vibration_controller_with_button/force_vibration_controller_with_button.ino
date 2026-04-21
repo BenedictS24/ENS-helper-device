@@ -45,6 +45,12 @@ long zero_offset = 102000;
 float scale_factor = 1000.0;
 
 // -------------------------------------------------------------
+// Auto-tare settings
+// -------------------------------------------------------------
+const int tare_samples = 20;
+const float tare_baseline_offset = 5.0;
+
+// -------------------------------------------------------------
 // Dynamic calibration of min / max readings
 // -------------------------------------------------------------
 float calibrated_min = -150.0;
@@ -126,15 +132,15 @@ int alert_max_pwm = 70;
 const int absolute_mode_max_pwm = 60;
 
 // Prozent der gesamten kalibrierten Spanne ab dem unteren Ende
-const float absolute_mode_deadzone_percent = 5.0;   // was 10.0
+const float absolute_mode_deadzone_percent = 5.0;
 
 // > 1.0 = sanfterer Anstieg am Anfang
-const float absolute_mode_curve_exponent = 2.5;     // was 1.2
+const float absolute_mode_curve_exponent = 2.5;
 
 // -------------------------------------------------------------
 // Rate mode tuning
 // -------------------------------------------------------------
-const int rate_mode_max_pwm = 60;                   // was 35
+const int rate_mode_max_pwm = 60;
 
 // -------------------------------------------------------------
 // Function declarations
@@ -158,6 +164,20 @@ void setup() {
   Serial.begin(57600);
 
   load_cell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+
+  long tare_sum = 0;
+
+  for (int i = 0; i < tare_samples; i++) {
+    while (!load_cell.is_ready()) {
+      delay(10);
+    }
+    tare_sum += load_cell.read();
+  }
+
+  zero_offset = tare_sum / tare_samples;
+
+  // Kleinen Puffer abziehen, damit der Ruhewert leicht ueber Null liegt
+  zero_offset -= (long)(tare_baseline_offset * scale_factor);
 
   pinMode(MOTOR_PIN, OUTPUT);
   analogWrite(MOTOR_PIN, 0);
