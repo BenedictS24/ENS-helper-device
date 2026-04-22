@@ -442,13 +442,16 @@ void print_plot_values(float signal_value, int pwm) {
   float plot_min = has_valid_calibration ? calibrated_min : 0.0;
   float plot_max = has_valid_calibration ? calibrated_max : 0.0;
 
-  Serial.print(signal_value, 2);
+  // Alles um den niedrigsten kalibrierten Wert nach oben schieben
+  float display_offset = has_valid_calibration ? -calibrated_min + 5.0 : 0.0;
+
+  Serial.print(signal_value + display_offset, 2);
   Serial.print('\t');
   Serial.print(pwm);
   Serial.print('\t');
-  Serial.print(plot_min, 2);
+  Serial.print(plot_min + display_offset, 2);
   Serial.print('\t');
-  Serial.println(plot_max, 2);
+  Serial.println(plot_max + display_offset, 2);
 }
 
 // -------------------------------------------------------------
