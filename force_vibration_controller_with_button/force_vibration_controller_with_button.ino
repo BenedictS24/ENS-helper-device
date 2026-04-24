@@ -35,6 +35,7 @@ int button_state = HIGH;
 unsigned long last_debounce_time = 0;
 
 unsigned long button_press_start_time = 0;
+bool long_press_handled = false;
 
 // -------------------------------------------------------------
 // HX711 / calibration
@@ -124,7 +125,7 @@ unsigned long pulse_on_time = 350;
 unsigned long pulse_ramp_time = 8000;
 
 int alert_min_pwm = 20;
-int alert_max_pwm = 70;
+int alert_max_pwm = 80;
 
 // -------------------------------------------------------------
 // Absolute mode tuning
@@ -205,16 +206,19 @@ void loop() {
 
       if (button_state == LOW) {
         button_press_start_time = now;
+        long_press_handled = false;
       } else {
-        if (!is_calibrating) {
-          unsigned long press_duration = now - button_press_start_time;
-
-          if (press_duration >= long_press_duration) {
-            start_calibration();
-          } else {
-            next_mode();
-          }
+        if (!is_calibrating && !long_press_handled) {
+          next_mode();
         }
+        long_press_handled = false;
+      }
+    }
+
+    if (button_state == LOW && !long_press_handled && !is_calibrating) {
+      if ((now - button_press_start_time) >= long_press_duration) {
+        long_press_handled = true;
+        start_calibration();
       }
     }
   }
