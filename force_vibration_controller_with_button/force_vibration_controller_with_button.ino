@@ -68,6 +68,7 @@ const unsigned long calibration_duration = 10000;
 
 float calibration_min_signal = 0.0;
 float calibration_max_signal = 0.0;
+float calibration_signal_filtered = 0.0;
 bool calibration_has_reading = false;
 
 const float min_calibration_span = 5.0;
@@ -245,18 +246,27 @@ void loop() {
       float raw_signal = get_load_cell_signal();
 
       if (!calibration_has_reading) {
+        calibration_signal_filtered = raw_signal;
         calibration_min_signal = raw_signal;
         calibration_max_signal = raw_signal;
         calibration_has_reading = true;
       } else {
-        if (raw_signal < calibration_min_signal) calibration_min_signal = raw_signal;
-        if (raw_signal > calibration_max_signal) calibration_max_signal = raw_signal;
+        calibration_signal_filtered = signal_smoothing * raw_signal
+                                    + (1.0 - signal_smoothing) * calibration_signal_filtered;
+
+        if (calibration_signal_filtered < calibration_min_signal) {
+          calibration_min_signal = calibration_signal_filtered;
+        }
+
+        if (calibration_signal_filtered > calibration_max_signal) {
+          calibration_max_signal = calibration_signal_filtered;
+        }
       }
 
-      last_valid_calibration_signal = raw_signal;
+      last_valid_calibration_signal = calibration_signal_filtered;
       have_valid_calibration_signal = true;
 
-      print_plot_values(raw_signal, 0);
+      print_plot_values(calibration_signal_filtered, 0);
     } else {
       float plot_signal;
 
@@ -423,8 +433,12 @@ void loop() {
 // Helper functions
 // -------------------------------------------------------------
 float clamp_float(float x, float lo, float hi) {
-  if (x < lo) return lo;
-  if (x > hi) return hi;
+  if (x < lo) {
+    return lo;
+  }
+  if (x > hi) {
+    return hi;
+  }
   return x;
 }
 
@@ -578,6 +592,7 @@ void start_calibration() {
 
   calibration_min_signal = 0.0;
   calibration_max_signal = 0.0;
+  calibration_signal_filtered = 0.0;
 
   have_valid_calibration_signal = false;
 
