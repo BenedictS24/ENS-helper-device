@@ -97,7 +97,7 @@ enum FeedbackMode {
 FeedbackMode current_mode = MODE_ABSOLUTE;
 
 // -------------------------------------------------------------
-// Rate of change mode
+// Signal filtering
 // -------------------------------------------------------------
 unsigned long last_time = 0;
 float last_signal_filtered = 0.0;
@@ -109,10 +109,25 @@ float rate_smoothing = 0.25;
 
 bool filter_initialized = false;
 
+// -------------------------------------------------------------
+// Absolute mode tuning
+// -------------------------------------------------------------
+const int absolute_mode_max_pwm = 60;
+
+// Percentage of total calibrated span from the lower end
+const float absolute_mode_deadzone_percent = 5.0;
+
+// > 1.0 = softer ramp at the start
+const float absolute_mode_curve_exponent = 2.5;
+
+// -------------------------------------------------------------
+// Rate mode tuning
+// -------------------------------------------------------------
+const int rate_mode_max_pwm = 60;
+
 float min_rate = 0.1;
 float max_rate = 1.2;
 
-const int rate_mode_max_pwm = 60;
 // -------------------------------------------------------------
 // No breath alert mode
 // -------------------------------------------------------------
@@ -127,18 +142,6 @@ unsigned long pulse_ramp_time = 8000;
 
 int alert_min_pwm = 20;
 int alert_max_pwm = 80;
-
-// -------------------------------------------------------------
-// Absolute mode tuning
-// -------------------------------------------------------------
-const int absolute_mode_max_pwm = 60;
-
-// Prozent der gesamten kalibrierten Spanne ab dem unteren Ende
-const float absolute_mode_deadzone_percent = 5.0;
-
-// > 1.0 = sanfterer Anstieg am Anfang
-const float absolute_mode_curve_exponent = 2.5;
-
 
 // -------------------------------------------------------------
 // Function declarations
@@ -174,7 +177,7 @@ void setup() {
 
   zero_offset = tare_sum / tare_samples;
 
-  // Kleinen Puffer abziehen, damit der Ruhewert leicht ueber Null liegt
+  // Subtract small buffer so the resting value sits slightly above zero
   zero_offset -= (long)(tare_baseline_offset * scale_factor);
 
   pinMode(MOTOR_PIN, OUTPUT);
@@ -191,6 +194,9 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
+  // -----------------------------------------------------------
+  // Button handling
+  // -----------------------------------------------------------
   int reading = digitalRead(BUTTON_PIN);
 
   if (reading != last_reading) {
@@ -222,6 +228,9 @@ void loop() {
 
   last_reading = reading;
 
+  // -----------------------------------------------------------
+  // Calibration mode
+  // -----------------------------------------------------------
   if (is_calibrating) {
     unsigned long calibration_now = millis();
 
@@ -257,6 +266,9 @@ void loop() {
     return;
   }
 
+  // -----------------------------------------------------------
+  // Normal operation: wait for load cell
+  // -----------------------------------------------------------
   if (!load_cell.is_ready()) {
     analogWrite(MOTOR_PIN, 0);
 
@@ -267,6 +279,9 @@ void loop() {
     return;
   }
 
+  // -----------------------------------------------------------
+  // Read and filter signal
+  // -----------------------------------------------------------
   float raw_signal = get_load_cell_signal();
   last_valid_signal = raw_signal;
   have_valid_signal = true;
@@ -305,6 +320,9 @@ void loop() {
   last_normalized_signal = normalized_signal;
   last_time = now;
 
+  // -----------------------------------------------------------
+  // Compute motor PWM based on current mode
+  // -----------------------------------------------------------
   int pwm = 0;
 
   if (has_valid_calibration) {
@@ -354,9 +372,7 @@ void loop() {
     else if (current_mode == MODE_NO_BREATH_ALERT) {
       unsigned long quiet_time = now - last_breath_detected_time;
 
-      if (quiet_time < no_breath_timeout) {
-        pwm = 0;
-      } else {
+      if (quiet_time >= no_breath_timeout) {
         unsigned long alert_elapsed = quiet_time - no_breath_timeout;
 
         float ramp_progress = (float)alert_elapsed / (float)pulse_ramp_time;
@@ -369,15 +385,13 @@ void loop() {
 
         if (pulse_phase < pulse_on_time) {
           pwm = pulse_strength;
-        } else {
-          pwm = 0;
         }
       }
 
-      pwm = apply_motor_floor(pwm);
+      if (pwm > 0) {
+        pwm = apply_motor_floor(pwm);
+      }
     }
-  } else {
-    pwm = 0;
   }
 
   analogWrite(MOTOR_PIN, pwm);
@@ -388,7 +402,7 @@ void loop() {
 }
 
 // -------------------------------------------------------------
-// Helper
+// Helper functions
 // -------------------------------------------------------------
 float clamp_float(float x, float lo, float hi) {
   if (x < lo) return lo;
@@ -443,7 +457,7 @@ void print_plot_values(float signal_value, int pwm) {
   float plot_min = has_valid_calibration ? calibrated_min : 0.0;
   float plot_max = has_valid_calibration ? calibrated_max : 0.0;
 
-  // Alles um den niedrigsten kalibrierten Wert nach oben schieben
+  // Shift everything up so the lowest calibrated value sits above zero
   float display_offset = has_valid_calibration ? -calibrated_min + 5.0 : 0.0;
 
   Serial.print(signal_value + display_offset, 2);
@@ -498,6 +512,9 @@ void indicate_current_mode() {
   }
 }
 
+// -------------------------------------------------------------
+// Signal state management
+// -------------------------------------------------------------
 void reset_signal_state() {
   last_time = millis();
 
@@ -518,7 +535,7 @@ void reset_signal_state() {
 }
 
 // -------------------------------------------------------------
-// Start calibration
+// Calibration
 // -------------------------------------------------------------
 void start_calibration() {
   previous_calibrated_min = calibrated_min;
@@ -592,6 +609,9 @@ void update_calibration_led(unsigned long now) {
   }
 }
 
+// -------------------------------------------------------------
+// Mode switching
+// -------------------------------------------------------------
 void next_mode() {
   if (current_mode == MODE_ABSOLUTE) {
     current_mode = MODE_RATE;
