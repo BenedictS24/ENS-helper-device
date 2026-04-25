@@ -24,11 +24,11 @@ const int CALIBRATION_SIGNAL_OFF_TIME = 100;
 // -------------------------------------------------------------
 // Button / LED settings
 // -------------------------------------------------------------
-const unsigned long debounce_delay = 40;
-const unsigned long long_press_duration = 3000;
+const unsigned long DEBOUNCE_DELAY = 40;
+const unsigned long LONG_PRESS_DURATION = 3000;
 
-const int blink_on_time = 250;
-const int blink_off_time = 250;
+const int BLINK_ON_TIME = 250;
+const int BLINK_OFF_TIME = 250;
 
 int last_reading = HIGH;
 int button_state = HIGH;
@@ -48,8 +48,8 @@ float scale_factor = 1000.0;
 // -------------------------------------------------------------
 // Auto-tare settings
 // -------------------------------------------------------------
-const int tare_samples = 20;
-const float tare_baseline_offset = 10.0;
+const int TARE_SAMPLES = 20;
+const float TARE_BASELINE_OFFSET = 10.0;
 
 // -------------------------------------------------------------
 // Dynamic calibration of min / max readings
@@ -64,18 +64,18 @@ bool has_valid_calibration = false;
 
 bool is_calibrating = false;
 unsigned long calibration_start_time = 0;
-const unsigned long calibration_duration = 10000;
+const unsigned long CALIBRATION_DURATION = 10000;
 
 float calibration_min_signal = 0.0;
 float calibration_max_signal = 0.0;
 float calibration_signal_filtered = 0.0;
 bool calibration_has_reading = false;
 
-const float min_calibration_span = 5.0;
+const float MIN_CALIBRATION_SPAN = 5.0;
 
 unsigned long last_calibration_led_toggle = 0;
 bool calibration_led_state = false;
-const unsigned long calibration_led_interval = 120;
+const unsigned long CALIBRATION_LED_INTERVAL = 120;
 
 // -------------------------------------------------------------
 // Last valid values for plotting if HX711 is temporarily not ready
@@ -113,18 +113,18 @@ bool filter_initialized = false;
 // -------------------------------------------------------------
 // Absolute mode tuning
 // -------------------------------------------------------------
-const int absolute_mode_max_pwm = 60;
+const int ABSOLUTE_MODE_MAX_PWM = 60;
 
 // Percentage of total calibrated span from the lower end
-const float absolute_mode_deadzone_percent = 5.0;
+const float ABSOLUTE_MODE_DEADZONE_PERCENT = 5.0;
 
 // > 1.0 = softer ramp at the start
-const float absolute_mode_curve_exponent = 2.5;
+const float ABSOLUTE_MODE_CURVE_EXPONENT = 2.5;
 
 // -------------------------------------------------------------
 // Rate mode tuning
 // -------------------------------------------------------------
-const int rate_mode_max_pwm = 60;
+const int RATE_MODE_MAX_PWM = 60;
 
 float min_rate = 0.1;
 float max_rate = 1.2;
@@ -173,17 +173,17 @@ void setup() {
 
   long tare_sum = 0;
 
-  for (int i = 0; i < tare_samples; i++) {
+  for (int i = 0; i < TARE_SAMPLES; i++) {
     while (!load_cell.is_ready()) {
       delay(10);
     }
     tare_sum += load_cell.read();
   }
 
-  zero_offset = tare_sum / tare_samples;
+  zero_offset = tare_sum / TARE_SAMPLES;
 
   // Subtract small buffer so the resting value sits slightly above zero
-  zero_offset -= (long)(tare_baseline_offset * scale_factor);
+  zero_offset -= (long)(TARE_BASELINE_OFFSET * scale_factor);
 
   pinMode(MOTOR_PIN, OUTPUT);
   analogWrite(MOTOR_PIN, 0);
@@ -208,7 +208,7 @@ void loop() {
     last_debounce_time = now;
   }
 
-  if ((now - last_debounce_time) > debounce_delay) {
+  if ((now - last_debounce_time) > DEBOUNCE_DELAY) {
     if (reading != button_state) {
       button_state = reading;
 
@@ -224,7 +224,7 @@ void loop() {
     }
 
     if (button_state == LOW && !long_press_handled && !is_calibrating) {
-      if ((now - button_press_start_time) >= long_press_duration) {
+      if ((now - button_press_start_time) >= LONG_PRESS_DURATION) {
         long_press_handled = true;
         start_calibration();
       }
@@ -279,7 +279,7 @@ void loop() {
       print_plot_values(plot_signal, 0);
     }
 
-    if ((calibration_now - calibration_start_time) >= calibration_duration) {
+    if ((calibration_now - calibration_start_time) >= CALIBRATION_DURATION) {
       finish_calibration();
     }
 
@@ -357,12 +357,12 @@ void loop() {
     if (current_mode == MODE_ABSOLUTE) {
       float calibration_span = calibrated_max - calibrated_min;
 
-      if (calibration_span < min_calibration_span) {
-        calibration_span = min_calibration_span;
+      if (calibration_span < MIN_CALIBRATION_SPAN) {
+        calibration_span = MIN_CALIBRATION_SPAN;
       }
 
       float signal_from_min = signal_filtered - calibrated_min;
-      float deadzone = (absolute_mode_deadzone_percent / 100.0) * calibration_span;
+      float deadzone = (ABSOLUTE_MODE_DEADZONE_PERCENT / 100.0) * calibration_span;
 
       if (deadzone > (calibration_span * 0.90)) {
         deadzone = calibration_span * 0.90;
@@ -374,9 +374,9 @@ void loop() {
         float progress = (signal_from_min - deadzone) / (calibration_span - deadzone);
         progress = clamp_float(progress, 0.0, 1.0);
 
-        float curved_progress = pow(progress, absolute_mode_curve_exponent);
+        float curved_progress = pow(progress, ABSOLUTE_MODE_CURVE_EXPONENT);
 
-        pwm = (int)(curved_progress * absolute_mode_max_pwm);
+        pwm = (int)(curved_progress * ABSOLUTE_MODE_MAX_PWM);
 
         if (pwm > 0) {
           pwm = apply_motor_floor(pwm);
@@ -388,8 +388,8 @@ void loop() {
       float r = clamp_float(activity_abs, min_rate, max_rate);
       pwm = map_float_to_pwm(r, min_rate, max_rate);
 
-      if (pwm > rate_mode_max_pwm) {
-        pwm = rate_mode_max_pwm;
+      if (pwm > RATE_MODE_MAX_PWM) {
+        pwm = RATE_MODE_MAX_PWM;
       }
 
       if (pwm > 0) {
@@ -477,8 +477,8 @@ float get_load_cell_signal() {
 float get_normalized_signal(float signal_value) {
   float span = calibrated_max - calibrated_min;
 
-  if (span < min_calibration_span) {
-    span = min_calibration_span;
+  if (span < MIN_CALIBRATION_SPAN) {
+    span = MIN_CALIBRATION_SPAN;
   }
 
   float normalized = (signal_value - calibrated_min) / span;
@@ -535,10 +535,10 @@ void signal_calibration_start_or_end() {
 void blink_n_times(int n) {
   for (int i = 0; i < n; i++) {
     digitalWrite(LED_PIN, HIGH);
-    delay(blink_on_time);
+    delay(BLINK_ON_TIME);
 
     digitalWrite(LED_PIN, LOW);
-    delay(blink_off_time);
+    delay(BLINK_OFF_TIME);
   }
 }
 
@@ -615,7 +615,7 @@ void finish_calibration() {
   if (calibration_has_reading) {
     calibration_span = calibration_max_signal - calibration_min_signal;
 
-    if (calibration_span >= min_calibration_span) {
+    if (calibration_span >= MIN_CALIBRATION_SPAN) {
       calibrated_min = calibration_min_signal;
       calibrated_max = calibration_max_signal;
       has_valid_calibration = true;
@@ -648,7 +648,7 @@ void finish_calibration() {
 }
 
 void update_calibration_led(unsigned long now) {
-  if (now - last_calibration_led_toggle >= calibration_led_interval) {
+  if (now - last_calibration_led_toggle >= CALIBRATION_LED_INTERVAL) {
     calibration_led_state = !calibration_led_state;
 
     if (calibration_led_state) {
