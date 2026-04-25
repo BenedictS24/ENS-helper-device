@@ -104,14 +104,15 @@ float last_signal_filtered = 0.0;
 float last_normalized_signal = 0.0;
 float rate_filtered = 0.0;
 
-float signal_smoothing = 0.12;
-float rate_smoothing = 0.10;
+float signal_smoothing = 0.3;
+float rate_smoothing = 0.25;
 
 bool filter_initialized = false;
 
-float min_rate = 0.0;
+float min_rate = 0.1;
 float max_rate = 1.2;
 
+const int rate_mode_max_pwm = 60;
 // -------------------------------------------------------------
 // No breath alert mode
 // -------------------------------------------------------------
@@ -120,8 +121,8 @@ unsigned long no_breath_timeout = 5000;
 
 float breath_detect_threshold = 0.035;
 
-unsigned long pulse_period = 1600;
-unsigned long pulse_on_time = 350;
+unsigned long pulse_period = 2000;
+unsigned long pulse_on_time = 400;
 unsigned long pulse_ramp_time = 8000;
 
 int alert_min_pwm = 20;
@@ -138,10 +139,6 @@ const float absolute_mode_deadzone_percent = 5.0;
 // > 1.0 = sanfterer Anstieg am Anfang
 const float absolute_mode_curve_exponent = 2.5;
 
-// -------------------------------------------------------------
-// Rate mode tuning
-// -------------------------------------------------------------
-const int rate_mode_max_pwm = 60;
 
 // -------------------------------------------------------------
 // Function declarations
