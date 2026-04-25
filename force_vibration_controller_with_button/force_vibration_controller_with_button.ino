@@ -116,6 +116,7 @@ bool filter_initialized = false;
 const int ABSOLUTE_MODE_MAX_PWM = 60;
 
 // Percentage of total calibrated span from the lower end
+// Must be below 90.0 to leave enough range for motor response
 const float ABSOLUTE_MODE_DEADZONE_PERCENT = 5.0;
 
 // > 1.0 = softer ramp at the start
@@ -303,7 +304,7 @@ void loop() {
 
     print_plot_values(plot_signal, 0);
 
-    delay(100);
+    delay(50);
     return;
   }
 
@@ -364,10 +365,6 @@ void loop() {
       float signal_from_min = signal_filtered - calibrated_min;
       float deadzone = (ABSOLUTE_MODE_DEADZONE_PERCENT / 100.0) * calibration_span;
 
-      if (deadzone > (calibration_span * 0.90)) {
-        deadzone = calibration_span * 0.90;
-      }
-
       if (signal_from_min <= deadzone) {
         pwm = 0;
       } else {
@@ -426,7 +423,7 @@ void loop() {
 
   print_plot_values(raw_signal, pwm);
 
-  delay(100);
+  delay(50);
 }
 
 // -------------------------------------------------------------
