@@ -49,7 +49,7 @@ float scale_factor = 1000.0;
 // Auto-tare settings
 // -------------------------------------------------------------
 const int tare_samples = 20;
-const float tare_baseline_offset = 5.0;
+const float tare_baseline_offset = 10.0;
 
 // -------------------------------------------------------------
 // Dynamic calibration of min / max readings
@@ -144,13 +144,18 @@ int alert_min_pwm = 20;
 int alert_max_pwm = 80;
 
 // -------------------------------------------------------------
-// Function declarations
+// Function declarations — helpers (math / hardware utilities)
 // -------------------------------------------------------------
 float clamp_float(float x, float lo, float hi);
 int map_float_to_pwm(float x, float in_min, float in_max);
 int apply_motor_floor(int pwm);
 float get_load_cell_signal();
 float get_normalized_signal(float signal_value);
+void print_plot_values(float signal_value, int pwm);
+
+// -------------------------------------------------------------
+// Function declarations — core logic
+// -------------------------------------------------------------
 void signal_calibration_start_or_end();
 void blink_n_times(int n);
 void indicate_current_mode();
@@ -159,7 +164,6 @@ void start_calibration();
 void finish_calibration();
 void update_calibration_led(unsigned long now);
 void next_mode();
-void print_plot_values(float signal_value, int pwm);
 
 void setup() {
   Serial.begin(57600);
@@ -254,7 +258,14 @@ void loop() {
 
       print_plot_values(raw_signal, 0);
     } else {
-      float plot_signal = have_valid_calibration_signal ? last_valid_calibration_signal : 0.0;
+      float plot_signal;
+
+      if (have_valid_calibration_signal) {
+        plot_signal = last_valid_calibration_signal;
+      } else {
+        plot_signal = 0.0;
+      }
+
       print_plot_values(plot_signal, 0);
     }
 
@@ -272,7 +283,14 @@ void loop() {
   if (!load_cell.is_ready()) {
     analogWrite(MOTOR_PIN, 0);
 
-    float plot_signal = have_valid_signal ? last_valid_signal : 0.0;
+    float plot_signal;
+
+    if (have_valid_signal) {
+      plot_signal = last_valid_signal;
+    } else {
+      plot_signal = 0.0;
+    }
+
     print_plot_values(plot_signal, 0);
 
     delay(100);
@@ -454,11 +472,19 @@ float get_normalized_signal(float signal_value) {
 }
 
 void print_plot_values(float signal_value, int pwm) {
-  float plot_min = has_valid_calibration ? calibrated_min : 0.0;
-  float plot_max = has_valid_calibration ? calibrated_max : 0.0;
+  float plot_min;
+  float plot_max;
+  float display_offset;
 
-  // Shift everything up so the lowest calibrated value sits above zero
-  float display_offset = has_valid_calibration ? -calibrated_min + 5.0 : 0.0;
+  if (has_valid_calibration) {
+    plot_min = calibrated_min;
+    plot_max = calibrated_max;
+    display_offset = -calibrated_min + 5.0;
+  } else {
+    plot_min = 0.0;
+    plot_max = 0.0;
+    display_offset = 0.0;
+  }
 
   Serial.print(signal_value + display_offset, 2);
   Serial.print('\t');
@@ -470,7 +496,7 @@ void print_plot_values(float signal_value, int pwm) {
 }
 
 // -------------------------------------------------------------
-// Combined LED + motor signal for calibration start/end
+// Core functions — calibration feedback
 // -------------------------------------------------------------
 void signal_calibration_start_or_end() {
   int pwm = apply_motor_floor(CALIBRATION_SIGNAL_PWM);
@@ -490,7 +516,7 @@ void signal_calibration_start_or_end() {
 }
 
 // -------------------------------------------------------------
-// LED feedback for current mode
+// Core functions — LED feedback
 // -------------------------------------------------------------
 void blink_n_times(int n) {
   for (int i = 0; i < n; i++) {
@@ -513,7 +539,7 @@ void indicate_current_mode() {
 }
 
 // -------------------------------------------------------------
-// Signal state management
+// Core functions — signal state management
 // -------------------------------------------------------------
 void reset_signal_state() {
   last_time = millis();
@@ -535,7 +561,7 @@ void reset_signal_state() {
 }
 
 // -------------------------------------------------------------
-// Calibration
+// Core functions — calibration
 // -------------------------------------------------------------
 void start_calibration() {
   previous_calibrated_min = calibrated_min;
@@ -598,19 +624,30 @@ void finish_calibration() {
   Serial.print("\tSPAN=");
   Serial.print(calibration_span, 2);
   Serial.print("\tVALID=");
-  Serial.println(has_valid_calibration ? 1 : 0);
+
+  if (has_valid_calibration) {
+    Serial.println(1);
+  } else {
+    Serial.println(0);
+  }
 }
 
 void update_calibration_led(unsigned long now) {
   if (now - last_calibration_led_toggle >= calibration_led_interval) {
     calibration_led_state = !calibration_led_state;
-    digitalWrite(LED_PIN, calibration_led_state ? HIGH : LOW);
+
+    if (calibration_led_state) {
+      digitalWrite(LED_PIN, HIGH);
+    } else {
+      digitalWrite(LED_PIN, LOW);
+    }
+
     last_calibration_led_toggle = now;
   }
 }
 
 // -------------------------------------------------------------
-// Mode switching
+// Core functions — mode switching
 // -------------------------------------------------------------
 void next_mode() {
   if (current_mode == MODE_ABSOLUTE) {
