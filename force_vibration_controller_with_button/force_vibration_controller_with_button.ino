@@ -118,7 +118,7 @@ float last_normalized_signal = 0.0;
 float rate_filtered = 0.0;
 
 float signal_smoothing = 0.3;
-float rate_smoothing = 0.25;
+float rate_smoothing = 0.3;
 
 bool filter_initialized = false;
 
@@ -128,11 +128,10 @@ bool filter_initialized = false;
 const int ABSOLUTE_MODE_MAX_PWM = 60;
 
 // Percentage of total calibrated span from the lower end
-// Must be below 90.0 to leave enough range for motor response
 const float ABSOLUTE_MODE_DEADZONE_PERCENT = 10.0;
 
 // > 1.0 = softer ramp at the start
-const float ABSOLUTE_MODE_CURVE_EXPONENT = 1.5;
+const float ABSOLUTE_MODE_CURVE_EXPONENT = 1.1;
 
 // -------------------------------------------------------------
 // Rate mode tuning
