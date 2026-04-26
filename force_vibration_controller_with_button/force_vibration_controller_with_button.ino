@@ -22,6 +22,15 @@ const int CALIBRATION_SIGNAL_ON_TIME = 120;
 const int CALIBRATION_SIGNAL_OFF_TIME = 100;
 
 // -------------------------------------------------------------
+// Loop timing
+// -------------------------------------------------------------
+const int LOOP_DELAY = 50;
+const int CALIBRATION_LOOP_DELAY = 20;
+
+// How long to keep the last PWM value when load cell is not ready
+const unsigned long LOAD_CELL_TIMEOUT = 1000;
+
+// -------------------------------------------------------------
 // Button / LED settings
 // -------------------------------------------------------------
 const unsigned long DEBOUNCE_DELAY = 40;
@@ -86,6 +95,9 @@ bool have_valid_signal = false;
 float last_valid_calibration_signal = 0.0;
 bool have_valid_calibration_signal = false;
 
+int last_pwm = 0;
+unsigned long last_valid_reading_time = 0;
+
 // -------------------------------------------------------------
 // Feedback modes
 // -------------------------------------------------------------
@@ -117,10 +129,10 @@ const int ABSOLUTE_MODE_MAX_PWM = 60;
 
 // Percentage of total calibrated span from the lower end
 // Must be below 90.0 to leave enough range for motor response
-const float ABSOLUTE_MODE_DEADZONE_PERCENT = 5.0;
+const float ABSOLUTE_MODE_DEADZONE_PERCENT = 10.0;
 
 // > 1.0 = softer ramp at the start
-const float ABSOLUTE_MODE_CURVE_EXPONENT = 2.5;
+const float ABSOLUTE_MODE_CURVE_EXPONENT = 1.5;
 
 // -------------------------------------------------------------
 // Rate mode tuning
@@ -284,7 +296,7 @@ void loop() {
       finish_calibration();
     }
 
-    delay(20);
+    delay(CALIBRATION_LOOP_DELAY);
     return;
   }
 
@@ -292,8 +304,6 @@ void loop() {
   // Normal operation: wait for load cell
   // -----------------------------------------------------------
   if (!load_cell.is_ready()) {
-    analogWrite(MOTOR_PIN, 0);
-
     float plot_signal;
 
     if (have_valid_signal) {
@@ -302,15 +312,22 @@ void loop() {
       plot_signal = 0.0;
     }
 
-    print_plot_values(plot_signal, 0);
+    if ((now - last_valid_reading_time) >= LOAD_CELL_TIMEOUT) {
+      last_pwm = 0;
+      analogWrite(MOTOR_PIN, 0);
+    }
 
-    delay(50);
+    print_plot_values(plot_signal, last_pwm);
+
+    delay(LOOP_DELAY);
     return;
   }
 
   // -----------------------------------------------------------
   // Read and filter signal
   // -----------------------------------------------------------
+  last_valid_reading_time = now;
+
   float raw_signal = get_load_cell_signal();
   last_valid_signal = raw_signal;
   have_valid_signal = true;
@@ -419,11 +436,12 @@ void loop() {
     }
   }
 
+  last_pwm = pwm;
   analogWrite(MOTOR_PIN, pwm);
 
   print_plot_values(raw_signal, pwm);
 
-  delay(50);
+  delay(LOOP_DELAY);
 }
 
 // -------------------------------------------------------------
@@ -569,6 +587,8 @@ void reset_signal_state() {
   rate_filtered = 0.0;
   filter_initialized = true;
   last_breath_detected_time = millis();
+  last_pwm = 0;
+  last_valid_reading_time = millis();
 }
 
 // -------------------------------------------------------------
